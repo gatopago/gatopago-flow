@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gatopago-flow-runtime-test-base",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "env": {
+    "runtime-test": {
+      "name": "gatopago-flow-runtime-test",
+      "vars": {
+        "PAYMENT_JOBS_QUEUE_NAME": "gatopago-flow-jobs-runtime-test",
+        "GATOPAGO_ENVIRONMENT": "staging",
+        "ALLOWED_ORIGINS": "https://staging.gatopago.com",
+        "SETTLEMENT_CHAIN_ID": "421614",
+        "PAYMENT_ENABLED_CHAIN_IDS": "421614,84532,43113",
+        "PAYMENT_AUTHORIZATION_TTL_SECONDS": "600",
+        "CIRCLE_API_BASE_URL": "https://iris-api-sandbox.circle.com",
+        "CHECKOUT_BASE_URL": "https://staging.gatopago.com/pay"
+      },
+      "d1_databases": [{
+        "binding": "PAYMENTS_DB",
+        "database_name": "gatopago-flow-runtime-test",
+        "database_id": "00000000-0000-0000-0000-000000000002",
+        "migrations_dir": "migrations"
+      }],
+      "durable_objects": {
+        "bindings": [{ "name": "PAYMENT_JOB_SCHEDULER", "class_name": "PaymentJobScheduler" }]
+      },
+      "migrations": [{ "tag": "v1_payment_job_scheduler", "new_sqlite_classes": ["PaymentJobScheduler"] }],
+      "queues": {
+        "producers": [{ "binding": "PAYMENT_JOBS_QUEUE", "queue": "gatopago-flow-jobs-runtime-test" }],
+        "consumers": [{ "queue": "gatopago-flow-jobs-runtime-test", "max_batch_size": 1 }]
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "gatopago-flow",
+  "private": true,
+  "packageManager": "pnpm@11.23.0",
+  "engines": { "node": "24.x" },
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "node scripts/deploy.mjs",
+    "deploy:dry-run": "node scripts/deploy.mjs --dry-run",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings --env-file .dev.vars.example",
+    "cf-typegen:check": "wrangler types --env-interface CloudflareBindings --env-file .dev.vars.example --check",
+    "lint": "eslint . --max-warnings 0",
+    "check:query-plans": "node scripts/check-query-plans.mjs",
+    "typecheck": "tsc --noEmit && pnpm typecheck:worker-runtime",
+    "verify": "pnpm cf-typegen:check && pnpm typecheck && pnpm lint && pnpm check:query-plans && pnpm test && pnpm build",
+    "test": "pnpm test:unit && pnpm test:worker-runtime",
+    "test:unit": "vitest run --config vitest.config.ts",
+    "test:worker-runtime": "vitest run --config vitest.worker.config.ts",
+    "typecheck:worker-runtime": "tsc --noEmit --project test-worker/tsconfig.json",
+    "build": "node scripts/check-vendor.mjs && wrangler deploy --dry-run --env-file .dev.vars.example --outdir .wrangler/build"
+  },
+  "dependencies": {
+    "@gatopago/shared": "file:vendor/gatopago-shared-3.1.0.tgz",
+    "hono": "4.13.5",
+    "viem": "^2.55.19"
+  },
+  "devDependencies": {
+    "@gatopago/environment": "file:vendor/gatopago-environment-3.1.0.tgz",
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.3",
+    "eslint": "^10.9.0",
+    "globals": "^17.11.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.11",
+    "wrangler": "4.125.0"
+  }
+}

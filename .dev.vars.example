@@ -1,0 +1,17 @@
+PAYMENT_AUTHORIZATION_SIGNER_PRIVATE_KEY=
+# Required before charging fees; recommended for every deployed route. It checks
+# signer, pause state, USDC, treasury and immutable caps before signing.
+PAYMENT_ROUTER_PREFLIGHT_ENABLED=true
+# Optional versioned rules. Leave empty for GatoPago's permanent free default.
+# Example: {"policyId":"pilot-v1","version":1,"rules":[{"id":"live-fast","priority":100,"feeBps":25,"modes":["live"],"routes":["cctp_fast"]}]}
+PAYMENT_FEE_POLICY_JSON=
+# Required only if a matched rule above has feeBps > 0. Must equal the router treasury.
+PAYMENT_PLATFORM_FEE_RECIPIENT=
+PAYMENT_RPC_URLS={"421614":["https://example.invalid"],"84532":["https://example.invalid"],"43113":["https://example.invalid"]}
+PAYMENT_RELAYER_PRIVATE_KEY=
+PAYMENT_CONFIRMATIONS_JSON={"421614":2,"84532":2,"43113":2}
+WEBHOOK_SECRET_ENCRYPTION_KEY=
+WEBHOOK_SECRET_ENCRYPTION_KEY_ID=local-test
+WEBHOOK_SECRET_ENCRYPTION_KEYS_PREVIOUS={}
+CIRCLE_API_KEY=
+OPS_HEALTH_TOKEN=

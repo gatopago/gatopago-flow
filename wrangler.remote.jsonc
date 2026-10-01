@@ -1,0 +1,56 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gatopago-flow",
+  "account_id": "c26e82cd341803c9136e19e668da67c6",
+  "main": "src/index.ts",
+  "workers_dev": false,
+  "preview_urls": false,
+  "compatibility_date": "2026-08-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "PAYMENT_JOBS_QUEUE_NAME": "gatopago-flow-staging-jobs",
+    "GATOPAGO_ENVIRONMENT": "production",
+    "ALLOWED_ORIGINS": "https://gatopago.com,https://business.gatopago.com",
+    "SETTLEMENT_CHAIN_ID": "421614",
+    "PAYMENT_ENABLED_CHAIN_IDS": "421614,84532,43113",
+    "PAYMENT_LIVE_ENABLED": "false",
+    "PAYMENT_ROUTER_PREFLIGHT_ENABLED": "true",
+    "PAYMENT_AUTHORIZATION_TTL_SECONDS": "600",
+    "CIRCLE_API_BASE_URL": "https://iris-api-sandbox.circle.com",
+    "CHECKOUT_BASE_URL": "https://gatopago.com/pay"
+  },
+  "services": [{ "binding": "WALLET_IDENTITY", "service": "gatopago-wallet-core", "entrypoint": "WalletIdentity" }],
+  "routes": [
+    { "pattern": "api.gatopago.com/v1/*", "zone_name": "gatopago.com" },
+    { "pattern": "api.gatopago.com/checkout/v1/*", "zone_name": "gatopago.com" }
+  ],
+  "d1_databases": [{
+    "binding": "PAYMENTS_DB",
+    "database_name": "gatopago-flow-staging",
+    "database_id": "f2ab2200-100d-4ae4-9248-042a6e633b8a",
+    "migrations_dir": "migrations"
+  }],
+  "durable_objects": {
+    "bindings": [{ "name": "PAYMENT_JOB_SCHEDULER", "class_name": "PaymentJobScheduler" }]
+  },
+  "migrations": [{ "tag": "v1_payment_job_scheduler", "new_sqlite_classes": ["PaymentJobScheduler"] }],
+  "queues": {
+    "producers": [{ "binding": "PAYMENT_JOBS_QUEUE", "queue": "gatopago-flow-staging-jobs" }],
+    "consumers": [{
+      "queue": "gatopago-flow-staging-jobs",
+      "max_batch_size": 5,
+      "max_batch_timeout": 2,
+      "max_retries": 20,
+      "dead_letter_queue": "gatopago-flow-staging-jobs-dlq",
+      "max_concurrency": 8,
+      "retry_delay": 15
+    }]
+  },
+  "triggers": { "crons": ["* * * * *"] },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "enabled": true, "invocation_logs": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.1 }
+  }
+}

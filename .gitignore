@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.vercel/
+.wrangler/
+output/
+coverage/
+*.log
+*.tsbuildinfo
+.env*
+.dev.vars*
+!.env.example
+!.dev.vars.example
