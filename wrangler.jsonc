@@ -8,16 +8,16 @@
   "compatibility_flags": ["nodejs_compat"],
   "dev": { "port": 8788 },
   "vars": {
-    "PAYMENT_JOBS_QUEUE_NAME": "gatopago-flow-jobs",
-    "GATOPAGO_ENVIRONMENT": "staging",
-    "ALLOWED_ORIGINS": "https://staging.gatopago.com,http://localhost:3000,http://127.0.0.1:3000",
+    "PAYMENT_JOBS_QUEUE_NAME": "gatopago-flow-jobs-local",
+    "GATOPAGO_ENVIRONMENT": "production",
+    "ALLOWED_ORIGINS": "http://localhost:3000,http://127.0.0.1:3000",
     "SETTLEMENT_CHAIN_ID": "421614",
     "PAYMENT_ENABLED_CHAIN_IDS": "421614,84532,43113",
     "PAYMENT_LIVE_ENABLED": "false",
     "PAYMENT_ROUTER_PREFLIGHT_ENABLED": "true",
     "PAYMENT_AUTHORIZATION_TTL_SECONDS": "600",
     "CIRCLE_API_BASE_URL": "https://iris-api-sandbox.circle.com",
-    "CHECKOUT_BASE_URL": "https://staging.gatopago.com/pay"
+    "CHECKOUT_BASE_URL": "http://localhost:3000/pay"
   },
   "services": [{ "binding": "WALLET_IDENTITY", "service": "gatopago-wallet-core-local", "entrypoint": "WalletIdentity" }],
   "observability": {
@@ -38,13 +38,13 @@
   },
   "migrations": [{ "tag": "v1_payment_job_scheduler", "new_sqlite_classes": ["PaymentJobScheduler"] }],
   "queues": {
-    "producers": [{ "binding": "PAYMENT_JOBS_QUEUE", "queue": "gatopago-flow-jobs" }],
+    "producers": [{ "binding": "PAYMENT_JOBS_QUEUE", "queue": "gatopago-flow-jobs-local", "remote": false }],
     "consumers": [{
-      "queue": "gatopago-flow-jobs",
+      "queue": "gatopago-flow-jobs-local",
       "max_batch_size": 5,
       "max_batch_timeout": 2,
       "max_retries": 20,
-      "dead_letter_queue": "gatopago-flow-jobs-dlq",
+      "dead_letter_queue": "gatopago-flow-jobs-dlq-local",
       // D1 serializes writes inside one database. Keep bounded parallelism so
       // HTTP traffic and provider calls retain capacity while Queue scales.
       "max_concurrency": 8,

@@ -66,8 +66,28 @@ El perfil remoto apunta a la base limpia V3, las colas V3 y el entrypoint
 `WalletIdentity` de `gatopago-wallet-core`. No importa datos de la base anterior.
 Los secretos se suministran según `.dev.vars.example`; el deploy conserva los
 ya cargados en el Worker. `deploy:dry-run` comprueba la compilación sin publicar.
-Desde esta carpeta: `pnpm deploy:dry-run`, o
-`pnpm deploy:dry-run --staging` para inspeccionar staging sin publicar.
+From this directory, `pnpm deploy:dry-run` inspects the production configuration
+without publishing.
+
+## Production deployment
+
+`wrangler.remote.jsonc` is the only remote target: `gatopago-flow`, production
+origins, and the private `WalletIdentity` entrypoint on `gatopago-wallet-core`.
+
+| Queue | ID |
+| --- | --- |
+| `gatopago-flow-jobs` | `73921170739a48b4b4b87f42376a5dc0` |
+| `gatopago-flow-jobs-dlq` | `7359ff310acf4edb89e954a7a537baef` |
+
+For an in-place name transition, pause delivery, preserve existing queue IDs,
+messages and settings, rename the bound queues, publish, verify bindings, and
+resume delivery. Deploy checks both target queues exist and does not
+automatically create replacements.
+
+`PAYMENTS_DB` retains ID `f2ab2200-100d-4ae4-9248-042a6e633b8a`; the binding uses
+the ID directly. D1 database names cannot be renamed, so the existing dashboard
+label is retained. No data migration, database deletion or live-payment
+enablement is part of this cleanup. See [D1 migration guidance](https://developers.cloudflare.com/d1/reference/migrations/).
 Publicar requiere una autorización aparte y el árbol de este proyecto limpio.
 
 El modelo comercial actual mantiene un owner por merchant. Organization/Membership/Project/Customer son trabajo de producto futuro, no capas vacías añadidas a esta renovación.

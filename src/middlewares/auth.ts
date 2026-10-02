@@ -31,7 +31,7 @@ export async function authMiddleware(c: Context<PaymentsContext>, next: Next): P
 		|| c.req.header("Cookie") !== undefined) return rejected(c, 401);
 	c.header("Cache-Control", "no-store");
 	try {
-		if (!c.env.WALLET_IDENTITY || !["staging", "production"].includes(c.env.GATOPAGO_ENVIRONMENT)) return rejected(c, 503);
+		if (!c.env.WALLET_IDENTITY || c.env.GATOPAGO_ENVIRONMENT !== "production") return rejected(c, 503);
 		const signal = AbortSignal.any([c.req.raw.signal, AbortSignal.timeout(10_000)]);
 		const response = await c.env.WALLET_IDENTITY.fetch("https://wallet-identity.internal/session", {
 			method: "POST", redirect: "manual", signal, headers: { Authorization: authorization,

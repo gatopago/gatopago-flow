@@ -9,13 +9,13 @@
       "name": "gatopago-flow-runtime-test",
       "vars": {
         "PAYMENT_JOBS_QUEUE_NAME": "gatopago-flow-jobs-runtime-test",
-        "GATOPAGO_ENVIRONMENT": "staging",
-        "ALLOWED_ORIGINS": "https://staging.gatopago.com",
+        "GATOPAGO_ENVIRONMENT": "production",
+        "ALLOWED_ORIGINS": "https://gatopago.com",
         "SETTLEMENT_CHAIN_ID": "421614",
         "PAYMENT_ENABLED_CHAIN_IDS": "421614,84532,43113",
         "PAYMENT_AUTHORIZATION_TTL_SECONDS": "600",
         "CIRCLE_API_BASE_URL": "https://iris-api-sandbox.circle.com",
-        "CHECKOUT_BASE_URL": "https://staging.gatopago.com/pay"
+        "CHECKOUT_BASE_URL": "https://gatopago.com/pay"
       },
       "d1_databases": [{
         "binding": "PAYMENTS_DB",

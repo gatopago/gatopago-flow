@@ -8,7 +8,7 @@
   "compatibility_date": "2026-08-25",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "PAYMENT_JOBS_QUEUE_NAME": "gatopago-flow-staging-jobs",
+    "PAYMENT_JOBS_QUEUE_NAME": "gatopago-flow-jobs",
     "GATOPAGO_ENVIRONMENT": "production",
     "ALLOWED_ORIGINS": "https://gatopago.com,https://business.gatopago.com",
     "SETTLEMENT_CHAIN_ID": "421614",
@@ -26,7 +26,6 @@
   ],
   "d1_databases": [{
     "binding": "PAYMENTS_DB",
-    "database_name": "gatopago-flow-staging",
     "database_id": "f2ab2200-100d-4ae4-9248-042a6e633b8a",
     "migrations_dir": "migrations"
   }],
@@ -35,13 +34,13 @@
   },
   "migrations": [{ "tag": "v1_payment_job_scheduler", "new_sqlite_classes": ["PaymentJobScheduler"] }],
   "queues": {
-    "producers": [{ "binding": "PAYMENT_JOBS_QUEUE", "queue": "gatopago-flow-staging-jobs" }],
+    "producers": [{ "binding": "PAYMENT_JOBS_QUEUE", "queue": "gatopago-flow-jobs" }],
     "consumers": [{
-      "queue": "gatopago-flow-staging-jobs",
+      "queue": "gatopago-flow-jobs",
       "max_batch_size": 5,
       "max_batch_timeout": 2,
       "max_retries": 20,
-      "dead_letter_queue": "gatopago-flow-staging-jobs-dlq",
+      "dead_letter_queue": "gatopago-flow-jobs-dlq",
       "max_concurrency": 8,
       "retry_delay": 15
     }]

@@ -9,7 +9,7 @@ import { apiRouteOwner } from '@gatopago/environment';
 const userId = 'usr_11111111-1111-4111-8111-111111111111';
 const authorization = 'Bearer synthetic.signed.token';
 function accepted(extra: Record<string, unknown> = {}) {
-  return Response.json({ user_id: userId, environment: 'staging', expires_at: Math.floor(Date.now() / 1000) + 3600, ...extra });
+  return Response.json({ user_id: userId, environment: 'production', expires_at: Math.floor(Date.now() / 1000) + 3600, ...extra });
 }
 const testApp = new Hono<PaymentsContext>();
 testApp.use('*', authMiddleware);
@@ -25,11 +25,11 @@ const request = (bindings: Bindings, headers: Record<string, string> = { Authori
 describe('Flow delegates consumer identity to Wallet Core', () => {
   it('uses the private service with only bearer and environment, without reusing accepted sessions', async () => {
     const bound = bindings();
-    const response = await request(bound, { Authorization: authorization, Origin: 'https://staging.gatopago.com', 'X-Forwarded-User': 'forged' });
+    const response = await request(bound, { Authorization: authorization, Origin: 'https://gatopago.com', 'X-Forwarded-User': 'forged' });
     expect(response.status).toBe(200); expect(await response.json()).toEqual({ user_id: userId });
     const [url, init] = bound.WALLET_IDENTITY.fetch.mock.calls[0];
     expect(url).toBe('https://wallet-identity.internal/session');
-    expect(init).toMatchObject({ method: 'POST', redirect: 'manual', headers: { Authorization: authorization, 'X-GatoPago-Environment': 'staging' } });
+    expect(init).toMatchObject({ method: 'POST', redirect: 'manual', headers: { Authorization: authorization, 'X-GatoPago-Environment': 'production' } });
     expect(Object.keys(init!.headers!)).toHaveLength(2);
     bound.WALLET_IDENTITY.fetch.mockResolvedValueOnce(Response.json({ error_code: 'UNAUTHENTICATED' }, { status: 401 }));
     expect((await request(bound)).status).toBe(401);
@@ -64,7 +64,7 @@ describe('Flow delegates consumer identity to Wallet Core', () => {
     expect((await request(bindings(() => { throw new Error('Unavailable'); }))).status).toBe(503);
   });
   it('rejects wrong environment, bad identities, expired results and unexpected response fields', async () => {
-    for (const extra of [{ environment: 'production' }, { user_id: 'google-uid' }, { user_id: null },
+    for (const extra of [{ environment: 'unsupported' }, { user_id: 'google-uid' }, { user_id: null },
       { expires_at: Math.floor(Date.now() / 1000) }, { expires_at: 9999999999 }, { email: 'private@example.test' }]) {
       expect((await request(bindings(() => accepted(extra)))).status).toBe(503);
     }
