@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { ERR } from "@gatopago/shared/payment-errors";
 import type { PaymentsContext } from "../middlewares/auth";
 import { requireAuth } from "../middlewares/auth";
-import { amount, futureExpiry, metadata, shortText } from "../domain/validation";
+import { amount, DomainValidationError, futureExpiry, metadata, requestBody, shortText } from "../domain/validation";
 import { createPaymentIntent, getPaymentIntent, listPaymentIntents } from "../repositories/intents";
 import { getMerchantByOwner } from "../repositories/accounts";
 import { getPaymentIntentFeeBreakdown } from "../repositories/fees";
@@ -20,8 +20,7 @@ import {
 	revokeApiKey,
 	type ApiMode,
 } from "../repositories/merchant";
-import { enqueuePaymentJob } from "../services/queue";
-import { flushPaymentOutbox } from "../services/queue";
+import { enqueuePaymentJob, flushPaymentOutbox } from "../services/queue";
 import { enforceRateLimit } from "../middlewares/rateLimit";
 import { paymentModeCapabilities } from "../services/capabilities";
 
@@ -40,7 +39,9 @@ async function merchant(c: Context<PaymentsContext>) {
 routes.get("/", async (c) => {
 	const value = await merchant(c);
 	if (!value) return c.json({ error: "Merchant is not configured", error_code: ERR.MERCHANT_NOT_CONFIGURED, requestId: c.get("requestId") }, 404);
-	return c.json({ ...value, name: value.displayName, created_at: value.createdAt });
+	return c.json({ id: value.id, name: value.displayName, settlement_wallet: value.settlementWallet,
+		settlement_chain_id: value.settlementChainId, account_version: value.accountVersion,
+		status: value.status, created_at: value.createdAt, updated_at: value.updatedAt });
 });
 
 routes.get("/capabilities", async (c) => {
@@ -60,12 +61,12 @@ function liveModeUnavailable(c: Context<PaymentsContext>, mode: ApiMode, settlem
 routes.post("/keys", async (c) => {
 	const value = await merchant(c);
 	if (!value) return c.json({ error: "Merchant is not configured", error_code: ERR.MERCHANT_NOT_CONFIGURED, requestId: c.get("requestId") }, 409);
-	const body = await c.req.json<Record<string, unknown>>();
+	const body = requestBody(await c.req.json(), ["mode", "name"]);
 	const mode: ApiMode = body.mode === "live" ? "live" : "test";
 	const unavailable = liveModeUnavailable(c, mode, value.settlementChainId);
 	if (unavailable) return unavailable;
 	const created = await createApiKey(c.env, value.id, mode, shortText(body.name, 80, "Default"));
-	return c.json({ id: created.key.id, key: created.secret, secret: created.secret, prefix: created.key.prefix,
+	return c.json({ id: created.key.id, key: created.secret, prefix: created.key.prefix,
 		mode: created.key.mode, name: created.key.name, created_at: created.key.createdAt }, 201);
 });
 
@@ -99,9 +100,10 @@ routes.post("/webhooks", async (c) => {
 	let body: Record<string, unknown>;
 	let url: string;
 	try {
-		body = await c.req.json<Record<string, unknown>>();
+		body = requestBody(await c.req.json(), ["url", "mode", "events"]);
 		url = webhookUrl(body.url);
-	} catch {
+	} catch (error) {
+		if (error instanceof DomainValidationError) throw error;
 		return c.json({ error: "Webhook URL must be a public HTTPS URL", error_code: ERR.INVALID_WEBHOOK_URL, requestId: c.get("requestId") }, 400);
 	}
 	const mode: ApiMode = body.mode === "live" ? "live" : "test";
@@ -152,7 +154,7 @@ routes.get("/payment_intents/:id", async (c) => {
 	const feeBreakdown = await getPaymentIntentFeeBreakdown(c.env, intent.id);
 	return c.json({ ...publicIntent(intent), checkout_url: intent.linkId
 		? `${c.env.CHECKOUT_BASE_URL}?id=${encodeURIComponent(intent.linkId)}` : null,
-		fee_breakdown: publicFeeBreakdown(feeBreakdown), onchain: null });
+		fee_breakdown: publicFeeBreakdown(feeBreakdown) });
 });
 
 routes.get("/events", async (c) => {
@@ -179,7 +181,7 @@ routes.post("/webhook_deliveries/:id/resend", async (c) => {
 routes.post("/sandbox/charge", async (c) => {
 	const value = await merchant(c);
 	if (!value) return c.json({ error: "Merchant is not configured", error_code: ERR.MERCHANT_NOT_CONFIGURED, requestId: c.get("requestId") }, 409);
-	const body = await c.req.json<Record<string, unknown>>();
+	const body = requestBody(await c.req.json(), ["amount", "reference", "metadata", "expires_at"]);
 	const normalized = amount(body.amount);
 	const created = await createPaymentIntent(c.env, { merchant: value,
 		amountAtomic: normalized.atomic, reference: shortText(body.reference, 160), metadata: metadata(body.metadata),

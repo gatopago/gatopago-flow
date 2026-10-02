@@ -66,7 +66,7 @@ app.use("*", cors({
 		return allowed.includes(origin) ? origin : null;
 	},
 	allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
-	allowHeaders: ["Content-Type", "Authorization", "X-Api-Key", "Idempotency-Key", "X-Request-Id",
+	allowHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "X-Request-Id",
 		"X-GatoPago-Checkout-Capability"],
 	exposeHeaders: ["X-Request-Id"],
 }));
@@ -123,8 +123,6 @@ app.get("/v1/health/ops", async (c) => {
 		configuration: { feePolicyIssues, routerConfigIssues, webhookEncryptionIssues, capabilities } }, unavailable ? 503 : 200);
 });
 
-app.get("/", (c) => c.text("GatoPago Payments API"));
-
 app.route("/checkout/v1", checkoutRoutes);
 // Session collections resolve before the integrator router's API-key middleware.
 app.route("/v1/payment_links", linksRoutes);
@@ -134,10 +132,7 @@ app.route("/v1", v1Routes);
 app.onError((error, c) => {
 	if (error instanceof DomainValidationError) return c.json({ error: error.message, error_code: error.code, requestId: c.get("requestId") }, 400);
 	if (error instanceof QuoteError) {
-		const status = error.code === "SIGNER_UNAVAILABLE" || error.code === "FEE_UNAVAILABLE" ||
-			error.code === "ROUTER_FEE_CAP_EXCEEDED" || error.code === "ROUTER_PREFLIGHT_REQUIRED" ||
-			error.code === "ROUTER_PREFLIGHT_FAILED" ? 503 : error.code.startsWith("INTENT_") ? 409 : 400;
-		return c.json({ error: error.message, error_code: error.code, requestId: c.get("requestId") }, status as 400);
+		return c.json({ error: error.message, error_code: error.code, requestId: c.get("requestId") }, error.status);
 	}
 	logError("payments_unhandled_error", error, { requestId: c.get("requestId"), path: new URL(c.req.url).pathname });
 	return c.json({ error: "Internal server error", error_code: ERR.SERVER_ERROR, requestId: c.get("requestId") }, 500);

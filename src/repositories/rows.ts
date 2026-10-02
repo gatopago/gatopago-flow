@@ -17,7 +17,7 @@ export type IntentRow = {
 	expires_at: string | null; created_at: string; updated_at: string;
 };
 
-export type LinkRow = IntentRow & { link_id: string; owner_user_id: string };
+export type LinkRow = IntentRow & { link_id: string };
 
 export type QuoteRow = {
 	id: string; intent_id: string; payer: Address; source_chain_id: number; route: PaymentRoute;
@@ -80,10 +80,10 @@ export function mapIntent(row: IntentRow): PaymentIntent {
 export function mapLink(row: LinkRow): PaymentLink {
 	const status = row.status === 'paid' || row.status === 'overpaid' ? 'paid'
 		: row.status === 'canceled' || row.status === 'expired' ? row.status : 'pending';
-	return { id: row.link_id, intentId: row.id, merchantId: row.merchant_id, ownerUserId: row.owner_user_id,
+	return { id: row.link_id, intentId: row.id,
 		wallet: row.settlement_wallet, amount: formatUnits(BigInt(row.amount_atomic), 6), currency: row.currency, reference: row.reference,
 		status, txHash: row.paid_tx_hash, paidAt: row.paid_at, paidBy: row.paid_by,
-		createdAt: row.created_at, updatedAt: row.updated_at };
+		createdAt: row.created_at };
 }
 
 export function mapQuote(row: QuoteRow): PaymentQuote {

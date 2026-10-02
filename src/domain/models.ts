@@ -45,8 +45,6 @@ export type PaymentIntent = {
 export type PaymentLink = {
 	id: string;
 	intentId: string;
-	merchantId: string;
-	ownerUserId: string;
 	wallet: `0x${string}`;
 	amount: string;
 	currency: "USDC";
@@ -56,7 +54,6 @@ export type PaymentLink = {
 	paidAt: string | null;
 	paidBy: string | null;
 	createdAt: string;
-	updatedAt: string;
 };
 
 export type PaymentRoute = "local" | "cctp_fast" | "cctp_standard";

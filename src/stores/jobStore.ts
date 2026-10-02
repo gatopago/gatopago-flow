@@ -4,7 +4,7 @@ import { changed, first, nowIso, run } from "./db";
 
 const JOB_LEASE_MS = 16 * 60_000;
 
-export type JobClaim =
+type JobClaim =
 	| { state: "claimed" }
 	| { state: "completed" }
 	| { state: "leased"; retryAfterSeconds: number };

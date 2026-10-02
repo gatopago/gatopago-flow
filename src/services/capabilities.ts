@@ -7,7 +7,7 @@ type LivePaymentReason =
 	| "settlement_is_testnet"
 	| "mainnet_routes_unavailable";
 
-export type PaymentModeCapabilities = {
+type PaymentModeCapabilities = {
 	settlement: { chainId: number | null; name: string | null; isTestnet: boolean | null };
 	modes: {
 		test: { enabled: true };

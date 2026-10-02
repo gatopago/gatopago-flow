@@ -4,7 +4,7 @@ import { changed, first, nowIso, run } from "../stores/db";
 
 export async function upsertCrosschainOperation(env: Bindings, input: {
 	attemptId: string; sourceChainId: number; destinationChainId: number; route: "cctp_fast" | "cctp_standard";
-	sourceTxHash: string; messageHash: string; message?: string | null;
+	sourceTxHash: string; messageHash: string; message: string;
 	burnAmountAtomic: string; platformFeeAtomic: string;
 }): Promise<string> {
 	const id = `cctp_${input.attemptId}`;
@@ -18,44 +18,38 @@ export async function upsertCrosschainOperation(env: Bindings, input: {
 		 message_hash = COALESCE(crosschain_operations.message_hash, excluded.message_hash), message = COALESCE(crosschain_operations.message, excluded.message),
 		 burn_amount_atomic = COALESCE(crosschain_operations.burn_amount_atomic, excluded.burn_amount_atomic),
 		 platform_fee_atomic = COALESCE(crosschain_operations.platform_fee_atomic, excluded.platform_fee_atomic),
-		 status = CASE WHEN crosschain_operations.status = 'awaiting_burn' THEN 'burned' ELSE crosschain_operations.status END, updated_at = excluded.updated_at`,
+		 updated_at = excluded.updated_at`,
 		[id, input.attemptId, input.sourceChainId, input.destinationChainId, input.route, input.sourceTxHash.toLowerCase(),
-			input.messageHash.toLowerCase(), input.message ?? null, input.burnAmountAtomic,
+			input.messageHash.toLowerCase(), input.message, input.burnAmountAtomic,
 			input.platformFeeAtomic, timestamp, timestamp, timestamp]);
 	return id;
 }
 
-export async function getCrosschainOperation(env: Bindings, opIdOrAttemptId: string): Promise<{
-	opId: string; attemptId: string; sourceChainId: number; destinationChainId: number; route: "cctp_fast" | "cctp_standard";
+export async function getCrosschainOperation(env: Bindings, opId: string): Promise<{
+	opId: string; attemptId: string; sourceChainId: number; destinationChainId: number;
 	status: string; sourceTxHash: string | null; messageHash: string | null; message: string | null; attestation: string | null;
 	burnAmountAtomic: string | null; platformFeeAtomic: string | null; networkFeeAtomic: string | null;
 	destinationTxHash: string | null; messageNonce: string | null; mintedAmountAtomic: string | null;
-	mintRawTransaction: string | null; mintSignerAddress: Address | null; mintNonce: number | null;
-	mintBroadcastAt: string | null; attemptCount: number; createdAt: string; updatedAt: string;
+	mintRawTransaction: string | null; attemptCount: number;
 }> {
 	const row = await first<{ op_id: string; attempt_id: string; source_chain_id: number; destination_chain_id: number;
-		route: "cctp_fast" | "cctp_standard"; status: string; source_tx_hash: string | null; message_hash: string | null;
+		status: string; source_tx_hash: string | null; message_hash: string | null;
 		message: string | null; attestation: string | null; burn_amount_atomic: string | null;
 		platform_fee_atomic: string | null; network_fee_atomic: string | null; destination_tx_hash: string | null;
 		message_nonce: string | null; minted_amount_atomic: string | null; mint_raw_transaction: string | null;
-		mint_signer_address: Address | null; mint_nonce: number | null; mint_broadcast_at: string | null;
-		attempt_count: number; created_at: string; updated_at: string }>(env,
-		`SELECT op_id, attempt_id, source_chain_id, destination_chain_id, route, status, source_tx_hash,
+		attempt_count: number }>(env,
+		`SELECT op_id, attempt_id, source_chain_id, destination_chain_id, status, source_tx_hash,
 		 message_hash, message, attestation, burn_amount_atomic, platform_fee_atomic, network_fee_atomic,
-		 destination_tx_hash, message_nonce, minted_amount_atomic, mint_raw_transaction,
-		 mint_signer_address, mint_nonce, mint_broadcast_at, attempt_count, created_at, updated_at
-		 FROM crosschain_operations WHERE op_id = ? OR attempt_id = ? LIMIT 1`,
-		[opIdOrAttemptId, opIdOrAttemptId]);
+		 destination_tx_hash, message_nonce, minted_amount_atomic, mint_raw_transaction, attempt_count
+		 FROM crosschain_operations WHERE op_id = ? LIMIT 1`, [opId]);
 	if (!row) throw new Error("Crosschain operation not found");
 	return { opId: row.op_id, attemptId: row.attempt_id, sourceChainId: row.source_chain_id,
-		destinationChainId: row.destination_chain_id, route: row.route, status: row.status,
+		destinationChainId: row.destination_chain_id, status: row.status,
 		sourceTxHash: row.source_tx_hash, messageHash: row.message_hash, message: row.message, attestation: row.attestation,
 		burnAmountAtomic: row.burn_amount_atomic, platformFeeAtomic: row.platform_fee_atomic,
 		networkFeeAtomic: row.network_fee_atomic, destinationTxHash: row.destination_tx_hash,
 		messageNonce: row.message_nonce, mintedAmountAtomic: row.minted_amount_atomic,
-		mintRawTransaction: row.mint_raw_transaction, mintSignerAddress: row.mint_signer_address,
-		mintNonce: row.mint_nonce, mintBroadcastAt: row.mint_broadcast_at,
-		attemptCount: row.attempt_count, createdAt: row.created_at, updatedAt: row.updated_at };
+		mintRawTransaction: row.mint_raw_transaction, attemptCount: row.attempt_count };
 }
 
 export async function updateCrosschainOperation(env: Bindings, opId: string, fields: {

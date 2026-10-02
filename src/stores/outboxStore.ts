@@ -1,7 +1,7 @@
 import type { Bindings } from "../env";
 import { nowIso } from "./db";
 
-export type PaymentOutboxRow = {
+type PaymentOutboxRow = {
 	id: string;
 	topic: "webhook_delivery";
 	resource_id: string;

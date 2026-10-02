@@ -3,7 +3,6 @@ import { parsePaymentJobMessage, type PaymentJobMessage } from "@gatopago/shared
 import { decryptWebhookSecret } from "../repositories/merchant";
 import { logError, logWarn } from "./logger";
 import { advanceCctpAttestation, mintCctpSettlement, reconcileAttempt, scanPaymentRouters } from "./reconciliation";
-import { getAttempt } from "../repositories/attempts";
 import {
 	claimPaymentJob,
 	claimWebhookDelivery,
@@ -70,10 +69,11 @@ async function runPaymentJob(env: Bindings, message: PaymentJobMessage): Promise
 	let completed = true;
 	if (message.job === "attempt_reconcile") completed = await reconcileAttempt(env, message.resourceId);
 	else if (message.job === "router_watch") {
-		const directChain = Number(message.resourceId);
-		const attempt = Number.isSafeInteger(directChain) ? null : await getAttempt(env, message.resourceId);
-		const chainId = Number.isSafeInteger(directChain) ? directChain : attempt?.sourceChainId;
-		completed = chainId ? await scanPaymentRouters(env, chainId) : true;
+		const chainId = Number(message.resourceId);
+		if (!Number.isSafeInteger(chainId) || chainId <= 0 || String(chainId) !== message.resourceId) {
+			throw new Error("Invalid router watch chain ID");
+		}
+		completed = await scanPaymentRouters(env, chainId);
 	} else if (message.job === "cctp_attestation") completed = await advanceCctpAttestation(env, message.resourceId);
 	else if (message.job === "cctp_mint") completed = await mintCctpSettlement(env, message.resourceId);
 	if (!completed) throw new Error("PAYMENT_EVIDENCE_PENDING");

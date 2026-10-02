@@ -16,7 +16,6 @@ vi.mock("../src/stores/jobStore", () => ({
 	recordWebhookResponse: mocks.recordWebhookResponse,
 }));
 vi.mock("../src/repositories/merchant", () => ({ decryptWebhookSecret: mocks.decryptWebhookSecret }));
-vi.mock("../src/repositories/attempts", () => ({ getAttempt: vi.fn() }));
 vi.mock("../src/services/reconciliation", () => ({
 	advanceCctpAttestation: vi.fn(), mintCctpSettlement: vi.fn(), reconcileAttempt: vi.fn(),
 	scanPaymentRouters: vi.fn(),

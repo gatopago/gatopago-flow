@@ -29,7 +29,7 @@ type PaymentFeePolicyDocument = {
 	rules: FeeRule[];
 };
 
-export type ResolvedPaymentFee = PaymentFeeSnapshot & {
+type ResolvedPaymentFee = PaymentFeeSnapshot & {
 	platformFeeAtomic: string;
 };
 

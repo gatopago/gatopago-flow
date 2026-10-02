@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { readJsonBounded } from "../src/services/http";
+import { readJsonBounded } from "@gatopago/shared/http";
 import { ResponseBodyTooLargeError } from "@gatopago/shared/http";
 
 describe("Flow upstream body budget", () => {
@@ -14,7 +14,7 @@ describe("Flow upstream body budget", () => {
 			},
 			cancel,
 		}, { highWaterMark: 0 });
-		await expect(readJsonBounded(new Response(body))).rejects.toBeInstanceOf(ResponseBodyTooLargeError);
+		await expect(readJsonBounded(new Response(body), 64 * 1024)).rejects.toBeInstanceOf(ResponseBodyTooLargeError);
 		expect(chunks).toBe(3);
 		expect(cancel).toHaveBeenCalledOnce();
 		expect(body.locked).toBe(false);
@@ -24,7 +24,7 @@ describe("Flow upstream body budget", () => {
 		const pull = vi.fn();
 		const cancel = vi.fn();
 		const body = new ReadableStream<Uint8Array>({ pull, cancel }, { highWaterMark: 0 });
-		await expect(readJsonBounded(new Response(body, { headers: { "Content-Length": "65537" } })))
+		await expect(readJsonBounded(new Response(body, { headers: { "Content-Length": "65537" } }), 64 * 1024))
 			.rejects.toBeInstanceOf(ResponseBodyTooLargeError);
 		expect(pull).not.toHaveBeenCalled();
 		expect(cancel).toHaveBeenCalledOnce();
@@ -35,7 +35,7 @@ describe("Flow upstream body budget", () => {
 		const bytes = new TextEncoder().encode(json).byteLength;
 		await expect(readJsonBounded(new Response(json), bytes)).resolves.toEqual({ name: "á" });
 		await expect(readJsonBounded(new Response(json), bytes - 1)).rejects.toBeInstanceOf(ResponseBodyTooLargeError);
-		await expect(readJsonBounded(new Response("invalid"))).rejects.toBeInstanceOf(SyntaxError);
+		await expect(readJsonBounded(new Response("invalid"), 64 * 1024)).rejects.toBeInstanceOf(SyntaxError);
 	});
 
 	it("cancels a stalled provider when its request deadline expires", async () => {

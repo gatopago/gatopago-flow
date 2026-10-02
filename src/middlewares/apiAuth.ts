@@ -5,7 +5,7 @@ import { authenticateApiKey } from "../repositories/merchant";
 
 export async function requireApiKey(c: Context<PaymentsContext>, next: Next): Promise<Response | void> {
 	const authorization = c.req.header("Authorization");
-	const raw = authorization?.startsWith("Bearer ") ? authorization.slice(7) : c.req.header("X-Api-Key");
+	const raw = authorization?.startsWith("Bearer ") ? authorization.slice(7) : undefined;
 	const auth = raw ? await authenticateApiKey(c.env, raw) : null;
 	if (!auth) return c.json({ error: "Invalid API key", error_code: ERR.UNAUTHENTICATED, requestId: c.get("requestId") }, 401);
 	c.set("merchantId", auth.merchantId);

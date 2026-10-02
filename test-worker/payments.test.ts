@@ -5,8 +5,10 @@ import FlowWorker from "../src/index";
 import { getMerchantByOwner, upsertSettlementAccount, SettlementAccountConflict } from "../src/repositories/accounts";
 import { PaymentCommands } from "../src/commands";
 import { consumePaymentQueue } from "../src/services/jobs";
-import { registerSourceTransaction } from "../src/repositories/attempts";
-import { getPaymentLink } from "../src/repositories/intents";
+import { insertQuoteAndAttempt, registerSourceTransaction } from "../src/repositories/attempts";
+import { getPaymentIntent, getPaymentLink } from "../src/repositories/intents";
+import { getQuote } from "../src/repositories/quotes";
+import { authorizeAttempt, buildQuote } from "../src/services/quoteEngine";
 import { settleAttempt } from "../src/repositories/settlement";
 import { createApiKey } from "../src/repositories/merchant";
 import { acquirePaymentSignerLease, releasePaymentSignerLease } from "../src/stores/signerLeaseStore";
@@ -63,6 +65,30 @@ beforeEach(async () => {
 });
 
 describe("independent Payments Worker", () => {
+	it("persists wallet reservations atomically and rolls back duplicate quotes", async () => {
+		const { intentId } = await seedCheckout("wallet-reservation");
+		const intent = (await getPaymentIntent(env, intentId))!;
+		const reservation = async () => {
+			const quote = await buildQuote(env, { intent, payer, sourceChainId: 421614 });
+			const attempt = await authorizeAttempt(env, { intent, quote, payerUserId: "usr_wallet" });
+			return { quote, attempt, idempotencyKey: "wallet-reservation" };
+		};
+		const initial = await reservation();
+		const stored = await insertQuoteAndAttempt(env, initial);
+		expect(stored).toMatchObject({ id: initial.attempt.id, quoteId: initial.quote.id,
+			payerUserId: "usr_wallet", checkoutCapabilityHash: null, payerProofSignature: null });
+		expect(await getQuote(env, initial.quote.id)).toEqual(initial.quote);
+		const replay = await reservation();
+		expect(await insertQuoteAndAttempt(env, replay)).toEqual(stored);
+		expect(await getQuote(env, replay.quote.id)).toBeNull();
+		expect(await env.PAYMENTS_DB.prepare(
+			"SELECT COUNT(*) AS count FROM payment_attempts WHERE intent_id = ?",
+		).bind(intentId).first()).toEqual({ count: 1 });
+		expect(await env.PAYMENTS_DB.prepare(
+			"SELECT COUNT(*) AS count FROM payment_fee_ledger WHERE attempt_id = ?",
+		).bind(stored.id).first()).toEqual({ count: 2 });
+	});
+
 	it("serves liveness and checkout without the App Worker", async () => {
 		const { linkId } = await seedCheckout("independent");
 		const live = await SELF.fetch("https://payments.test/v1/health/live");
@@ -71,6 +97,42 @@ describe("independent Payments Worker", () => {
 		const response = await SELF.fetch(`https://payments.test/checkout/v1/${linkId}`);
 		expect(response.status).toBe(200);
 		expect(await response.json()).toMatchObject({ intent: { amount: "10", status: "awaiting_payment" } });
+	});
+
+	it("rejects checkout field aliases even alongside canonical fields", async () => {
+		const { linkId } = await seedCheckout("strict-checkout");
+		const current = { payer, source_chain_id: 421614,
+			attempt_capability_hash: await hashCheckoutCapability(checkoutCapability) };
+		for (const alias of [{ payer_address: payer }, { sourceChainId: 421614 }]) {
+			const response = await SELF.fetch(`https://payments.test/checkout/v1/${linkId}/quotes`, {
+				method: "POST", headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ ...current, ...alias }),
+			});
+			expect(response.status).toBe(400);
+			expect(await response.json()).toMatchObject({ error_code: "INVALID_CALLDATA" });
+		}
+		const quoted = await quote(linkId);
+		const proof = await payerAccount.signMessage({ message: String(quoted.payer_proof_message) });
+		const obsolete = await SELF.fetch(`https://payments.test/checkout/v1/${linkId}/attempts`, {
+			method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": "strict-checkout",
+				"X-GatoPago-Checkout-Capability": checkoutCapability },
+			body: JSON.stringify({ quote_id: quoted.id, quoteId: quoted.id, payer_proof_signature: proof }),
+		});
+		expect(obsolete.status).toBe(400);
+		expect(await obsolete.json()).toMatchObject({ error_code: "INVALID_CALLDATA" });
+		expect((await attempt(linkId, quoted, "strict-checkout")).status).toBe(201);
+	});
+
+	it("accepts API keys only through Authorization Bearer", async () => {
+		await seedCheckout("strict-api-key");
+		const created = await createApiKey(env, "mrc_strict-api-key", "test", "Strict credentials");
+		const obsolete = await SELF.fetch("https://payments.test/v1/payment_intents", {
+			headers: { "X-Api-Key": created.secret },
+		});
+		expect(obsolete.status).toBe(401);
+		expect((await SELF.fetch("https://payments.test/v1/payment_intents", {
+			headers: { Authorization: `Bearer ${created.secret}` },
+		})).status).toBe(200);
 	});
 
 	it("keeps open reservations independent and fixes the amount at first settlement", async () => {
@@ -375,10 +437,17 @@ describe("independent Payments Worker", () => {
 				method: "POST",
 				headers: { "Content-Type": "application/json",
 					"X-GatoPago-Checkout-Capability": capability },
-				body: JSON.stringify({ payer: merchantWallet, source_tx_hash: sourceTxHash }),
+				body: JSON.stringify({ source_tx_hash: sourceTxHash }),
 			},
 		);
 
+		const spoofed = await SELF.fetch(`https://payments.test/checkout/v1/${linkId}/attempts/${attemptId}/register`, {
+			method: "POST", headers: { "Content-Type": "application/json",
+				"X-GatoPago-Checkout-Capability": checkoutCapability },
+			body: JSON.stringify({ payer: merchantWallet, source_tx_hash: firstHash }),
+		});
+		expect(spoofed.status).toBe(400);
+		expect(await spoofed.json()).toMatchObject({ error_code: "INVALID_CALLDATA" });
 		expect((await register("B".repeat(43), firstHash)).status).toBe(404);
 		expect(await env.PAYMENTS_DB.prepare(
 			"SELECT status, source_tx_hash FROM payment_attempts WHERE id = ?",
@@ -550,6 +619,20 @@ describe("independent Payments Worker", () => {
 			overpaid_amount_atomic: "10000" });
 	});
 
+	it("rejects router watch jobs that use attempt IDs", async () => {
+		const body = { messageVersion: 2 as const, job: "router_watch" as const, jobId: "job-retired-router",
+			dedupeKey: "retired:router", resourceId: "pa_retired", partition: "421614", attempt: 0,
+			createdAt: new Date().toISOString() };
+		const batch = createMessageBatch(env.PAYMENT_JOBS_QUEUE_NAME, [{ id: "retired-router", timestamp: new Date(),
+			body, attempts: 1 }]);
+		const ctx = createExecutionContext();
+		await new FlowWorker(ctx, env).queue(batch);
+		expect(await getQueueResult(batch, ctx)).toMatchObject({ explicitAcks: [], retryMessages: [{ msgId: "retired-router" }] });
+		expect(await env.PAYMENTS_DB.prepare(
+			"SELECT status, last_error FROM payment_job_runs WHERE dedupe_key = ?",
+		).bind(body.dedupeKey).first()).toEqual({ status: "failed", last_error: "Invalid router watch chain ID" });
+	});
+
 	it("retries a redelivery held by a live lease instead of acknowledging lost work", async () => {
 		const timestamp = new Date().toISOString();
 		const lease = new Date(Date.now() + 16 * 60_000).toISOString();
@@ -615,7 +698,20 @@ describe("independent Payments Worker", () => {
 		).first()).toEqual({ status: "processing", lease_owner: "recovery-worker", lease_expires_at: nextLease });
 	});
 
-	it("decrypts old webhook secrets during rotation and re-encrypts them with compare-and-set", async () => {
+	it("rejects webhook ciphertext without the current authenticated envelope", async () => {
+		const encrypted = await encryptWebhookSecret(env, "whsec_strict-envelope");
+		const payload = encrypted.ciphertext.split(":").slice(3).join(":");
+		for (const obsolete of [payload, encrypted.ciphertext.replace("enc:v2:", "enc:v1:"),
+			`${encrypted.ciphertext}.extra`]) {
+			await expect(decryptWebhookSecret(env, obsolete, encrypted.keyId)).rejects.toThrow("Invalid webhook ciphertext");
+		}
+		await expect(decryptWebhookSecret(env, encrypted.ciphertext, "wrong-key-id")).rejects.toThrow("key ID mismatch");
+		expect(await decryptWebhookSecret(env, encrypted.ciphertext, encrypted.keyId)).toBe("whsec_strict-envelope");
+		await expect(encryptWebhookSecret({ ...env, WEBHOOK_SECRET_ENCRYPTION_KEY: "ab".repeat(32) },
+			"whsec_hex-key")).rejects.toThrow("must be 32 bytes");
+	});
+
+	it("rotates webhook keys within the current ciphertext format using compare-and-set", async () => {
 		await seedCheckout("key-rotation");
 		const oldEnv = {
 			WEBHOOK_SECRET_ENCRYPTION_KEY: btoa("abcdef0123456789abcdef0123456789"),

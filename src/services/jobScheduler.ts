@@ -23,9 +23,8 @@ export class PaymentJobScheduler extends DurableObject<Bindings> {
 		if (!this.env.PAYMENT_JOBS_QUEUE) throw new Error("Payment jobs Queue is unavailable");
 		const jobs = await this.ctx.storage.list<ScheduledJob>({ prefix: "job:" });
 		const now = Date.now();
-		let next: number | null = null;
 		for (const [key, job] of jobs) {
-			if (job.runAt > now) { next = next === null ? job.runAt : Math.min(next, job.runAt); continue; }
+			if (job.runAt > now) continue;
 			const body: PaymentJobMessage = { messageVersion: 2, job: job.job, jobId: crypto.randomUUID(),
 				dedupeKey: `${job.dedupeKey}:${job.generation}`, resourceId: job.resourceId, partition: job.partition,
 				attempt: 0, createdAt: new Date().toISOString() };
@@ -37,7 +36,7 @@ export class PaymentJobScheduler extends DurableObject<Bindings> {
 		}
 		await this.ctx.storage.transaction(async (transaction) => {
 			const remaining = await transaction.list<ScheduledJob>({ prefix: "job:" });
-			next = [...remaining.values()].reduce<number | null>(
+			const next = [...remaining.values()].reduce<number | null>(
 				(earliest, job) => earliest === null ? job.runAt : Math.min(earliest, job.runAt), null,
 			);
 			if (next === null) await transaction.deleteAlarm();

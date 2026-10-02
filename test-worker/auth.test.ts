@@ -5,6 +5,7 @@ import { authMiddleware, requireAuth, type PaymentsContext } from '../src/middle
 import app from '../src/http';
 import type { Bindings } from '../src/env';
 import { apiRouteOwner } from '@gatopago/environment';
+import { upsertSettlementAccount } from '../src/repositories/accounts';
 
 const userId = 'usr_11111111-1111-4111-8111-111111111111';
 const authorization = 'Bearer synthetic.signed.token';
@@ -93,11 +94,70 @@ describe('Flow delegates consumer identity to Wallet Core', () => {
     }
   });
   it('serves business endpoints only in the declared V3 namespaces', async () => {
-    for (const route of app.routes.filter(route => route.method !== 'ALL' && route.path !== '/')) {
+    for (const route of app.routes.filter(route => route.method !== 'ALL')) {
       expect(apiRouteOwner(route.path), route.path).toBe('flow-core');
     }
-    for (const path of ['/links', '/links/example', '/merchant', '/merchant/capabilities', '/checkout/example', '/health', '/health/live', '/health/ops']) {
+    for (const path of ['/', '/links', '/links/example', '/merchant', '/merchant/capabilities', '/checkout/example', '/health', '/health/live', '/health/ops']) {
       expect((await app.request(`https://flow.test${path}`, {}, bindings())).status).toBe(404);
+    }
+  });
+
+  it('uses one merchant response shape and rejects retired expiry fields', async () => {
+    await upsertSettlementAccount(env, { commandId: crypto.randomUUID(), ownerUserId: userId, accountVersion: 1,
+      walletAddress: '0x00000000000000000000000000000000000000a1', chainId: 421614 });
+    const bound = bindings();
+    const headers = { Authorization: authorization, 'Content-Type': 'application/json' };
+    const merchant = await app.request('https://flow.test/v1/merchant', { headers }, bound);
+    expect(merchant.status).toBe(200);
+    expect(Object.keys(await merchant.json()).sort()).toEqual([
+      'account_version', 'created_at', 'id', 'name', 'settlement_chain_id', 'settlement_wallet', 'status', 'updated_at',
+    ]);
+    const createdKey = await app.request('https://flow.test/v1/merchant/keys', {
+      method: 'POST', headers, body: JSON.stringify({ mode: 'test', name: 'Contract test' }),
+    }, bound);
+    expect(createdKey.status).toBe(201);
+    const key = await createdKey.json<{ key: string; secret?: string }>();
+    expect(key.key).toMatch(/^sk_test_/u);
+    expect(key).not.toHaveProperty('secret');
+    expect((await app.request('https://flow.test/v1/merchant/webhooks', {
+      method: 'POST', headers, body: JSON.stringify({ url: 'https://webhook.example/contracts', mode: 'test' }),
+    }, bound)).status).toBe(201);
+    const current = { amount: '10', expires_at: new Date(Date.now() + 60_000).toISOString() };
+    for (const path of ['/v1/payment_links', '/v1/merchant/sandbox/charge', '/v1/payment_intents']) {
+      const routeHeaders = path === '/v1/payment_intents' ? { ...headers, Authorization: `Bearer ${key.key}` } : headers;
+      const obsolete = await app.request(`https://flow.test${path}`, {
+        method: 'POST', headers: routeHeaders, body: JSON.stringify({ ...current, expiresAt: current.expires_at }),
+      }, bound);
+      expect(obsolete.status, path).toBe(400);
+      expect(await obsolete.json()).toMatchObject({ error_code: 'INVALID_CALLDATA' });
+      const response = await app.request(`https://flow.test${path}`, {
+        method: 'POST', headers: routeHeaders, body: JSON.stringify(current),
+      }, bound);
+      expect(response.status, path).toBe(201);
+      const created = await response.json<{ id: string; intentId?: string }>();
+      if (path === '/v1/payment_links') {
+        expect(created).toHaveProperty('intentId');
+        expect(created).not.toHaveProperty('intent');
+      } else {
+        const detail = await app.request(`https://flow.test/v1/merchant/payment_intents/${created.id}`, { headers }, bound);
+        expect(detail.status).toBe(200);
+        expect(await detail.json()).not.toHaveProperty('onchain');
+      }
+    }
+    const events = await app.request('https://flow.test/v1/merchant/events', { headers }, bound);
+    const eventBody = await events.json<{ data: Record<string, unknown>[] }>();
+    expect(eventBody.data).toHaveLength(3);
+    for (const event of eventBody.data) {
+      expect(event).toHaveProperty('payload');
+      expect(event).not.toHaveProperty('data');
+    }
+    const deliveries = await app.request('https://flow.test/v1/merchant/webhook_deliveries', { headers }, bound);
+    const deliveryBody = await deliveries.json<{ data: Record<string, unknown>[] }>();
+    expect(deliveryBody.data).toHaveLength(3);
+    for (const delivery of deliveryBody.data) {
+      expect(delivery).toMatchObject({ attempt: 0, responseCode: null });
+      expect(delivery).not.toHaveProperty('attemptCount');
+      expect(delivery).not.toHaveProperty('lastStatusCode');
     }
   });
 });

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { ERR } from "@gatopago/shared/payment-errors";
 import type { PaymentsContext } from "../middlewares/auth";
 import { requireAuth } from "../middlewares/auth";
-import { futureExpiry, metadata, optionalAmount, shortText } from "../domain/validation";
+import { futureExpiry, metadata, optionalAmount, requestBody, shortText } from "../domain/validation";
 import { createPaymentIntent, getPaymentLink, listPaymentLinks } from "../repositories/intents";
 import { getMerchantByOwner } from "../repositories/accounts";
 import { publicLink } from "../domain/presentation";
@@ -19,7 +19,7 @@ routes.post("/", requireAuth, async (c) => {
 	if (!merchant || merchant.status !== "active") {
 		return c.json({ error: "Settlement account is not configured", error_code: ERR.MERCHANT_NOT_CONFIGURED, requestId: c.get("requestId") }, 409);
 	}
-	const body = await c.req.json<Record<string, unknown>>();
+	const body = requestBody(await c.req.json(), ["amount", "currency", "reference", "metadata", "expires_at"]);
 	const normalized = optionalAmount(body.amount);
 	if (body.currency && String(body.currency).toUpperCase() !== "USDC") {
 		return c.json({ error: "Universal Checkout currently settles USDC", error_code: ERR.UNSUPPORTED_CURRENCY, requestId: c.get("requestId") }, 400);
@@ -30,11 +30,11 @@ routes.post("/", requireAuth, async (c) => {
 		amountMode: normalized.mode,
 		reference: shortText(body.reference, 160),
 		metadata: metadata(body.metadata),
-		expiresAt: futureExpiry(body.expires_at ?? body.expiresAt),
+		expiresAt: futureExpiry(body.expires_at),
 		idempotencyKey: c.req.header("Idempotency-Key") ?? null,
 		mode: getPaymentNetworkCapabilities(merchant.settlementChainId)?.isTestnet === false ? "live" : "test",
 	});
-	return c.json({ ...publicLink(created.link), intent: created.intent.id, idempotent_replay: created.replay }, created.replay ? 200 : 201);
+	return c.json({ ...publicLink(created.link), idempotent_replay: created.replay }, created.replay ? 200 : 201);
 });
 
 routes.get("/", requireAuth, async (c) => {

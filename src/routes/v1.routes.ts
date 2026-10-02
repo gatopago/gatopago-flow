@@ -3,7 +3,7 @@ import { ERR } from "@gatopago/shared/payment-errors";
 import { getPaymentNetworkCapabilities } from "@gatopago/shared/payment-networks";
 import type { PaymentsContext } from "../middlewares/auth";
 import { requireApiKey } from "../middlewares/apiAuth";
-import { amount, futureExpiry, metadata, shortText } from "../domain/validation";
+import { amount, futureExpiry, metadata, requestBody, shortText } from "../domain/validation";
 import { cancelPaymentIntent, createPaymentIntent, getPaymentIntent, listPaymentIntents } from "../repositories/intents";
 import { getMerchantById } from "../repositories/accounts";
 import { getPaymentIntentFeeBreakdown } from "../repositories/fees";
@@ -35,7 +35,7 @@ routes.post("/payment_intents", async (c) => {
 			error_code: ERR.SERVICE_UNAVAILABLE, requestId: c.get("requestId"),
 			live_mode_reason: capabilities.modes.live.reason }, 503);
 	}
-	const body = await c.req.json<Record<string, unknown>>();
+	const body = requestBody(await c.req.json(), ["amount", "currency", "reference", "metadata", "expires_at"]);
 	const normalized = amount(body.amount);
 	if (body.currency && String(body.currency).toUpperCase() !== "USDC") return c.json({ error: "Only USDC settlement is supported", error_code: ERR.UNSUPPORTED_CURRENCY, requestId: c.get("requestId") }, 400);
 	const created = await createPaymentIntent(c.env, {

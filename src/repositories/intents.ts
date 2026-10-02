@@ -8,7 +8,7 @@ export async function createPaymentIntent(env: Bindings, input: {
 	merchant: Merchant; amountAtomic: string; reference: string;
 	amountMode?: PaymentIntent["amountMode"];
 	metadata: Record<string, unknown>; expiresAt: string; idempotencyKey?: string | null;
-	mode?: "test" | "live"; intentId?: string; linkId?: string;
+	mode?: "test" | "live";
 }): Promise<{ intent: PaymentIntent; link: PaymentLink; replay: boolean }> {
 	if (input.idempotencyKey) {
 		const existing = await first<IntentRow>(env, `SELECT ${INTENT_COLUMNS} FROM payment_intents WHERE merchant_id = ? AND idempotency_key = ? LIMIT 1`, [input.merchant.id, input.idempotencyKey]);
@@ -19,8 +19,8 @@ export async function createPaymentIntent(env: Bindings, input: {
 			return { intent, link, replay: true };
 		}
 	}
-	const intentId = input.intentId ?? `pi_${crypto.randomUUID()}`;
-	const linkId = input.linkId ?? crypto.randomUUID();
+	const intentId = `pi_${crypto.randomUUID()}`;
+	const linkId = crypto.randomUUID();
 	const timestamp = nowIso();
 	const mode = input.mode ?? "test";
 	const amountMode = input.amountMode ?? "fixed";
@@ -84,12 +84,12 @@ export async function getIntentByLink(env: Bindings, linkId: string): Promise<Pa
 }
 
 export async function getPaymentLink(env: Bindings, id: string): Promise<PaymentLink | null> {
-	const row = await first<LinkRow>(env, `SELECT i.*, m.owner_user_id FROM payment_intents i JOIN merchants m ON m.id = i.merchant_id WHERE i.link_id = ? LIMIT 1`, [id]);
+	const row = await first<LinkRow>(env, `SELECT ${INTENT_COLUMNS} FROM payment_intents WHERE link_id = ? LIMIT 1`, [id]);
 	return row ? mapLink(row) : null;
 }
 
 export async function listPaymentLinks(env: Bindings, ownerUserId: string, limit = 20): Promise<PaymentLink[]> {
-	const rows = await env.PAYMENTS_DB.prepare(`SELECT i.*, m.owner_user_id FROM merchants m JOIN payment_intents i ON i.merchant_id = m.id WHERE m.owner_user_id = ? AND i.link_id IS NOT NULL ORDER BY i.created_at DESC, i.id DESC LIMIT ?`).bind(ownerUserId, limit).all<LinkRow>();
+	const rows = await env.PAYMENTS_DB.prepare(`SELECT i.* FROM merchants m JOIN payment_intents i ON i.merchant_id = m.id WHERE m.owner_user_id = ? AND i.link_id IS NOT NULL ORDER BY i.created_at DESC, i.id DESC LIMIT ?`).bind(ownerUserId, limit).all<LinkRow>();
 	return rows.results.map(mapLink);
 }
 
@@ -126,17 +126,12 @@ export async function releaseExpiredPayerDefinedAmount(env: Bindings, intentId: 
 	await env.PAYMENTS_DB.batch([
 		env.PAYMENTS_DB.prepare(
 			`UPDATE payment_attempts SET status = 'expired', last_error_code = 'PAYMENT_EVIDENCE_TIMEOUT', updated_at = ?
-			 WHERE intent_id = ? AND status = 'reserved' AND valid_until < ?`,
-		).bind(timestamp, intentId, nowSeconds - ATTEMPT_EVIDENCE_GRACE_SECONDS),
-		env.PAYMENTS_DB.prepare(
-			`UPDATE payment_attempts SET status = 'expired', last_error_code = 'PAYMENT_EVIDENCE_TIMEOUT', updated_at = ?
-			 WHERE intent_id = ? AND status = 'submitted' AND valid_until < ?`,
+			 WHERE intent_id = ? AND status IN ('reserved','submitted') AND valid_until < ?`,
 		).bind(timestamp, intentId, nowSeconds - ATTEMPT_EVIDENCE_GRACE_SECONDS),
 		env.PAYMENTS_DB.prepare(
 			`UPDATE payment_intents SET amount_atomic = '0', updated_at = ?
 			 WHERE id = ? AND amount_mode = 'payer_defined' AND status = 'awaiting_payment'
 			 AND NOT EXISTS (SELECT 1 FROM payment_attempts WHERE intent_id = ? AND status IN ('reserved','submitted','processing'))`,
 		).bind(timestamp, intentId, intentId),
-
 	]);
 }

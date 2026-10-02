@@ -26,6 +26,12 @@ export class QuoteError extends Error {
 		super(message);
 		this.name = "QuoteError";
 	}
+	get status(): 400 | 409 | 503 {
+		if (this.code.startsWith("INTENT_") || this.code === "ATTEMPT_ACTIVE") return 409;
+		return ["SIGNER_UNAVAILABLE", "FEE_UNAVAILABLE", "INVALID_FEE_POLICY", "AMBIGUOUS_FEE_POLICY",
+			"INVALID_ROUTE_CAPABILITY", "ROUTER_FEE_CAP_EXCEEDED", "ROUTER_PREFLIGHT_REQUIRED",
+			"ROUTER_PREFLIGHT_FAILED"].includes(this.code) ? 503 : 400;
+	}
 }
 
 function enabledChains(env: Bindings): Set<number> {

@@ -26,7 +26,8 @@
   ],
   "d1_databases": [{
     "binding": "PAYMENTS_DB",
-    "database_id": "f2ab2200-100d-4ae4-9248-042a6e633b8a",
+    "database_name": "gatopago-flow",
+    "database_id": "9b6e90e5-3016-4f5c-bb14-51879b8a1a52",
     "migrations_dir": "migrations"
   }],
   "durable_objects": {

@@ -1,6 +1,6 @@
 import type { Bindings } from "../env";
 
-export type PaymentOpsCounts = {
+type PaymentOpsCounts = {
 	activeAttempts: number;
 	pendingWebhooks: number;
 	pendingOutbox: number;

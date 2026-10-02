@@ -2,7 +2,7 @@ import { formatUnits } from "viem";
 import { isSettlementAccountCommand, isReserveWalletPaymentAttemptCommand, isRegisterWalletPaymentExecutionCommand, type RegisterWalletPaymentExecutionCommand, type RegisteredWalletPaymentExecution, type ReserveWalletPaymentAttemptCommand, type ReservedWalletPaymentAttempt, type RpcResult, type RpcErrorCode, type SettlementAccountCommand, type SettlementAccountResult } from "@gatopago/shared/payment-contracts";
 import { amount, walletAddress, DomainValidationError } from "./domain/validation";
 import { getAttemptByIdempotency, insertQuoteAndAttempt, registerWalletExecution } from "./repositories/attempts";
-import { getIntentByLink, getPaymentLink, releaseExpiredPayerDefinedAmount } from "./repositories/intents";
+import { getIntentByLink, releaseExpiredPayerDefinedAmount } from "./repositories/intents";
 import { SettlementAccountConflict, upsertSettlementAccount as persistSettlementAccount } from "./repositories/accounts";
 import { authorizeAttempt, buildQuote, QuoteError } from "./services/quoteEngine";
 import { enqueuePaymentJob } from "./services/queue";
@@ -33,14 +33,13 @@ export class PaymentCommands {
 	async reserveWalletPaymentAttempt(command: ReserveWalletPaymentAttemptCommand): Promise<RpcResult<ReservedWalletPaymentAttempt>> {
 		if (!isReserveWalletPaymentAttemptCommand(command)) return rpcError("INVALID_CONTRACT", "Unsupported or malformed attempt command");
 		try {
-			const link = await getPaymentLink(this.env, command.linkId);
-			const initialIntent = link ? await getIntentByLink(this.env, link.id) : null;
-			if (!link || !initialIntent) return rpcError("NOT_FOUND", "Payment link not found");
+			const initialIntent = await getIntentByLink(this.env, command.linkId);
+			if (!initialIntent) return rpcError("NOT_FOUND", "Payment link not found");
 			const payer = walletAddress(command.payerAddress);
 			const replay = await getAttemptByIdempotency(this.env, { intentId: initialIntent.id, payerAddress: payer,
 				sourceChainId: command.sourceChainId, idempotencyKey: command.commandId });
 			if (!replay) await releaseExpiredPayerDefinedAmount(this.env, initialIntent.id);
-			const intent = await getIntentByLink(this.env, link.id);
+			const intent = await getIntentByLink(this.env, command.linkId);
 			if (!intent) return rpcError("NOT_FOUND", "Payment intent not found");
 			let attempt = replay;
 			if (!attempt) {
@@ -56,7 +55,7 @@ export class PaymentCommands {
 				attempt = await insertQuoteAndAttempt(this.env, { quote, attempt: authorized, idempotencyKey: command.commandId });
 			}
 			return { ok: true, contractVersion: 3, value: {
-				attemptId: attempt.id, intentId: intent.id, linkId: link.id, merchant: intent.settlementWallet,
+				attemptId: attempt.id, intentId: intent.id, linkId: command.linkId, merchant: intent.settlementWallet,
 				amount: formatUnits(BigInt(attempt.settlementAmountAtomic), 6), currency: "USDC", sourceChainId: attempt.sourceChainId,
 				router: attempt.routerAddress, authorization: attempt.authorization as ReservedWalletPaymentAttempt["authorization"],
 				signature: attempt.signature, authorizationHash: attempt.authorizationHash,
@@ -74,7 +73,7 @@ export class PaymentCommands {
 		if (!value) return rpcError<RegisteredWalletPaymentExecution>("CONFLICT", "Attempt and execution do not match");
 		await enqueuePaymentJob(this.env, { job: "attempt_reconcile", resourceId: value.attemptId,
 			dedupeKey: `wallet-execution:${value.attemptId}:${value.userOpHash}`, partition: String(command.sourceChainId) });
-		await enqueuePaymentJob(this.env, { job: "router_watch", resourceId: value.attemptId,
+		await enqueuePaymentJob(this.env, { job: "router_watch", resourceId: String(command.sourceChainId),
 			dedupeKey: `wallet-router-watch:${value.attemptId}:${value.userOpHash}`, partition: String(command.sourceChainId) });
 		return { ok: true, contractVersion: 3, value };
 	}

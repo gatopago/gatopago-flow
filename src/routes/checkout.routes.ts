@@ -3,7 +3,7 @@ import { formatUnits, isHash, type Hex } from "viem";
 import { ERR } from "@gatopago/shared/payment-errors";
 import { PAYMENT_NETWORKS } from "@gatopago/shared/payment-networks";
 import type { PaymentsContext } from "../middlewares/auth";
-import { amount, walletAddress } from "../domain/validation";
+import { amount, requestBody, walletAddress } from "../domain/validation";
 import { cancelAttempt, getAttempt, getAttemptByIdempotency, getCheckoutAttempt, insertAttempt, registerSourceTransaction } from "../repositories/attempts";
 import { getIntentByLink, getPaymentIntent, getPaymentLink, releaseExpiredPayerDefinedAmount } from "../repositories/intents";
 import { getQuote, insertQuote } from "../repositories/quotes";
@@ -103,7 +103,7 @@ function attemptNotFound(c: Context<PaymentsContext>): Response {
 async function registerAttempt(c: Context<PaymentsContext>, attemptId: string, linkId: string): Promise<Response> {
 	const limited = await enforceRateLimit(c, { scope: "checkout_register", key: `${requestIdentity(c)}:${attemptId}`, limit: 60 });
 	if (limited) return limited;
-	const body = await c.req.json<Record<string, unknown>>();
+	const body = requestBody(await c.req.json(), ["source_tx_hash"]);
 	const txHash = typeof body.source_tx_hash === "string" ? body.source_tx_hash : "";
 	if (!isHash(txHash)) return c.json({ error: "Invalid transaction hash", error_code: ERR.INVALID_TX_HASH, requestId: c.get("requestId") }, 400);
 	const capabilityHash = await requestCapabilityHash(c);
@@ -125,7 +125,7 @@ async function registerAttempt(c: Context<PaymentsContext>, attemptId: string, l
 	if (!verified) {
 		const current = await getCheckoutAttempt(c.env, attemptId, capabilityHash);
 		if (!current) return attemptNotFound(c);
-		await enqueuePaymentJob(c.env, { job: "router_watch", resourceId: current.id,
+		await enqueuePaymentJob(c.env, { job: "router_watch", resourceId: String(current.sourceChainId),
 			dedupeKey: `checkout-router-watch:${current.id}:${Math.floor(Date.now() / 30_000)}`,
 			partition: String(current.sourceChainId) });
 		return c.json({ error: "Transaction receipt is not available yet",
@@ -135,7 +135,7 @@ async function registerAttempt(c: Context<PaymentsContext>, attemptId: string, l
 	if (!attempt) return attemptNotFound(c);
 	await enqueuePaymentJob(c.env, { job: "attempt_reconcile", resourceId: attempt.id,
 		dedupeKey: `attempt_reconcile:${attempt.id}:${txHash.toLowerCase()}`, partition: String(attempt.sourceChainId) });
-	await enqueuePaymentJob(c.env, { job: "router_watch", resourceId: attempt.id,
+	await enqueuePaymentJob(c.env, { job: "router_watch", resourceId: String(attempt.sourceChainId),
 		dedupeKey: `checkout-router-watch:${attempt.id}:${txHash.toLowerCase()}`, partition: String(attempt.sourceChainId) });
 	return c.json(attemptPayload(attempt));
 }
@@ -177,14 +177,14 @@ routes.post("/:linkId/quotes", async (c) => {
 	if (current) await releaseExpiredPayerDefinedAmount(c.env, current.id);
 	const intent = await getIntentByLink(c.env, c.req.param("linkId"));
 	if (!intent) return c.json({ error: "Intent not found", error_code: ERR.INTENT_NOT_FOUND, requestId: c.get("requestId") }, 404);
-	const body = await c.req.json<Record<string, unknown>>();
-	const payer = walletAddress(body.payer ?? body.payer_address);
+	const body = requestBody(await c.req.json(), ["payer", "source_chain_id", "route", "amount", "attempt_capability_hash"]);
+	const payer = walletAddress(body.payer);
 	const capabilityHash = body.attempt_capability_hash;
 	if (!isCheckoutCapabilityHash(capabilityHash)) {
 		return c.json({ error: "Invalid checkout capability hash", error_code: ERR.INVALID_CALLDATA,
 			requestId: c.get("requestId") }, 400);
 	}
-	const sourceChainId = Number(body.source_chain_id ?? body.sourceChainId);
+	const sourceChainId = Number(body.source_chain_id);
 	const requested = body.route === "fast" || body.route === "standard" ? body.route : "auto";
 	const quote = await buildQuote(c.env, { intent: quoteIntent(intent, body.amount), payer, sourceChainId, requestedRoute: requested });
 	await insertQuote(c.env, quote);
@@ -201,7 +201,7 @@ routes.post("/:linkId/attempts", async (c) => {
 	if (!intent) return c.json({ error: "Intent not found", error_code: ERR.INTENT_NOT_FOUND, requestId: c.get("requestId") }, 404);
 	const idempotencyKey = c.req.header("Idempotency-Key")?.trim();
 	if (!idempotencyKey || idempotencyKey.length > 160) return c.json({ error: "Idempotency-Key is required", error_code: ERR.INVALID_CALLDATA, requestId: c.get("requestId") }, 400);
-	const body = await c.req.json<Record<string, unknown>>();
+	const body = requestBody(await c.req.json(), ["quote_id", "payer_proof_signature"]);
 	const capability = c.req.header(CHECKOUT_CAPABILITY_HEADER);
 	const payerProofSignature = body.payer_proof_signature;
 	if (!isCheckoutCapability(capability) || !isCheckoutProofSignature(payerProofSignature)) {
@@ -209,7 +209,7 @@ routes.post("/:linkId/attempts", async (c) => {
 			requestId: c.get("requestId") }, 400);
 	}
 	const capabilityHash = await hashCheckoutCapability(capability);
-	const quoteId = typeof body.quote_id === "string" ? body.quote_id : typeof body.quoteId === "string" ? body.quoteId : "";
+	const quoteId = typeof body.quote_id === "string" ? body.quote_id : "";
 	const quote = await getQuote(c.env, quoteId);
 	if (!quote || quote.intentId !== intent.id) return c.json({ error: "Quote not found", error_code: ERR.QUOTE_NOT_FOUND, requestId: c.get("requestId") }, 404);
 	const replay = await getAttemptByIdempotency(c.env, { intentId: intent.id, payerAddress: quote.payer,
@@ -273,18 +273,6 @@ routes.post("/attempts/:attemptId/cancel", async (c) => {
 	const canceled = await cancelAttempt(c.env, { attemptId: c.req.param("attemptId"), capabilityHash });
 	if (!canceled) return c.json({ error: "Attempt cannot be canceled while its authorization or transaction is active", error_code: ERR.ATTEMPT_ACTIVE, requestId: c.get("requestId") }, 409);
 	return c.json({ id: c.req.param("attemptId"), status: "canceled" });
-});
-
-routes.onError((error, c) => {
-	if (error instanceof QuoteError) {
-		const status = error.code === "INTENT_NOT_PAYABLE" || error.code === "INTENT_EXPIRED" || error.code === "ATTEMPT_ACTIVE" ? 409
-			: error.code === "SIGNER_UNAVAILABLE" || error.code === "FEE_UNAVAILABLE" ||
-				error.code === "INVALID_FEE_POLICY" || error.code === "AMBIGUOUS_FEE_POLICY" ||
-				error.code === "INVALID_ROUTE_CAPABILITY" || error.code === "ROUTER_FEE_CAP_EXCEEDED" ||
-				error.code === "ROUTER_PREFLIGHT_REQUIRED" || error.code === "ROUTER_PREFLIGHT_FAILED" ? 503 : 400;
-		return c.json({ error: error.message, error_code: error.code, requestId: c.get("requestId") }, status as 400);
-	}
-	throw error;
 });
 
 export default routes;

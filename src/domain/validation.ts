@@ -7,6 +7,14 @@ export class DomainValidationError extends Error {
 	}
 }
 
+export function requestBody(value: unknown, fields: readonly string[]): Record<string, unknown> {
+	if (!value || typeof value !== "object" || Array.isArray(value) ||
+		Object.keys(value).some((field) => !fields.includes(field))) {
+		throw new DomainValidationError("INVALID_CALLDATA", "Unexpected request fields");
+	}
+	return value as Record<string, unknown>;
+}
+
 export function walletAddress(value: unknown): Address {
 	if (typeof value !== "string" || !isAddress(value, { strict: false })) {
 		throw new DomainValidationError("INVALID_WALLET", "Invalid wallet address");
@@ -56,8 +64,8 @@ export function metadata(value: unknown): Record<string, unknown> {
 	return value as Record<string, unknown>;
 }
 
-export function futureExpiry(value: unknown, defaultMinutes = 60): string {
-	if (value === undefined || value === null) return new Date(Date.now() + defaultMinutes * 60_000).toISOString();
+export function futureExpiry(value: unknown): string {
+	if (value === undefined || value === null) return new Date(Date.now() + 60 * 60_000).toISOString();
 	if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
 		throw new DomainValidationError("INVALID_EXPIRY", "Invalid expiry timestamp");
 	}

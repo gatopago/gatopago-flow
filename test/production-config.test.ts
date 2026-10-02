@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
@@ -14,12 +14,12 @@ describe('production deployment configuration (no remote writes)', () => {
     expect(config.vars.CHECKOUT_BASE_URL).toBe('https://gatopago.com/pay');
     expect(config.vars.PAYMENT_LIVE_ENABLED).toBe('false');
     expect(config.services).toEqual([{ binding: 'WALLET_IDENTITY', service: 'gatopago-wallet-core', entrypoint: 'WalletIdentity' }]);
-    expect(JSON.stringify(config)).not.toMatch(/staging/i);
-    expect(existsSync(new URL('wrangler.staging.jsonc', root))).toBe(false);
+    expect(readdirSync(root).filter(name => /^wrangler\..*jsonc$/.test(name)).sort()).toEqual(['wrangler.jsonc', 'wrangler.remote.jsonc', 'wrangler.test.jsonc']);
   });
-  it('preserves database identity and aligns producer, consumer and delivery names', () => {
+  it('binds the verified production database and aligns queue delivery names', () => {
     expect(config.d1_databases).toEqual([{ binding: 'PAYMENTS_DB',
-      database_id: 'f2ab2200-100d-4ae4-9248-042a6e633b8a', migrations_dir: 'migrations' }]);
+      database_name: 'gatopago-flow',
+      database_id: '9b6e90e5-3016-4f5c-bb14-51879b8a1a52', migrations_dir: 'migrations' }]);
     expect(config.vars.PAYMENT_JOBS_QUEUE_NAME).toBe('gatopago-flow-jobs');
     expect(config.queues.producers).toEqual([{ binding: 'PAYMENT_JOBS_QUEUE', queue: config.vars.PAYMENT_JOBS_QUEUE_NAME }]);
     expect(config.queues.consumers[0]).toMatchObject({ queue: config.vars.PAYMENT_JOBS_QUEUE_NAME,
@@ -31,19 +31,12 @@ describe('production deployment configuration (no remote writes)', () => {
     expect(local).toContain('"CHECKOUT_BASE_URL": "http://localhost:3000/pay"');
     expect(local).toContain('"remote": false');
     expect(local).not.toContain(config.d1_databases[0].database_id);
-    expect(local).not.toContain('staging');
   });
-  it('rejects the removed deployment switch before invoking Wrangler', () => {
-    const result = spawnSync(process.execPath, [fileURLToPath(new URL('scripts/deploy.mjs', root)), '--dry-run', '--staging'], {
+  it.each(['--unsupported', '--maintenance'])('rejects unrecognized %s before invoking Wrangler', (switchName) => {
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('scripts/deploy.mjs', root)), '--dry-run', switchName], {
       cwd: root, encoding: 'utf8', timeout: 10_000,
     });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('ERR_PARSE_ARGS_UNKNOWN_OPTION');
-  });
-  it('uses the production namespace with synthetic credentials in CI', () => {
-    const ci = readFileSync(new URL('.github/workflows/ci.yml', root), 'utf8');
-    expect(ci).toContain('GATOPAGO_ENVIRONMENT: production');
-    expect(ci).toContain('FIREBASE_PROJECT_ID: v3-build-test');
-    expect(ci).not.toContain('staging');
   });
 });

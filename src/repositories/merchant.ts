@@ -3,7 +3,7 @@ import { all, changed, first, nowIso, run } from "../stores/db";
 import { randomSecret, sha256Hex } from "../services/crypto";
 
 export type ApiMode = "test" | "live";
-export type ApiKeySummary = {
+type ApiKeySummary = {
 	id: string; mode: ApiMode; prefix: string; name: string; lastUsedAt: string | null;
 	revokedAt: string | null; createdAt: string;
 };
@@ -13,7 +13,7 @@ type ApiKeyRow = {
 	name: string; last_used_at: string | null; revoked_at: string | null; created_at: string;
 };
 
-function summary(row: ApiKeyRow): ApiKeySummary {
+function summary(row: Omit<ApiKeyRow, "merchant_id" | "key_hash">): ApiKeySummary {
 	return { id: row.id, mode: row.mode, prefix: row.prefix, name: row.name,
 		lastUsedAt: row.last_used_at, revokedAt: row.revoked_at, createdAt: row.created_at };
 }
@@ -31,8 +31,8 @@ export async function createApiKey(env: Bindings, merchantId: string, mode: ApiM
 
 export async function authenticateApiKey(env: Bindings, raw: string): Promise<{ merchantId: string; mode: ApiMode } | null> {
 	if (!/^sk_(?:test|live)_[0-9a-f]{48}$/u.test(raw)) return null;
-	const row = await first<ApiKeyRow>(env,
-		"SELECT id, merchant_id, mode, prefix, key_hash, name, last_used_at, revoked_at, created_at FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL LIMIT 1",
+	const row = await first<Pick<ApiKeyRow, "id" | "merchant_id" | "mode">>(env,
+		"SELECT id, merchant_id, mode FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL LIMIT 1",
 		[await sha256Hex(raw)]);
 	if (!row) return null;
 	await run(env, "UPDATE api_keys SET last_used_at = ? WHERE id = ?", [nowIso(), row.id]);
@@ -40,8 +40,8 @@ export async function authenticateApiKey(env: Bindings, raw: string): Promise<{ 
 }
 
 export async function listApiKeys(env: Bindings, merchantId: string): Promise<ApiKeySummary[]> {
-	return (await all<ApiKeyRow>(env,
-		"SELECT id, merchant_id, mode, prefix, key_hash, name, last_used_at, revoked_at, created_at FROM api_keys WHERE merchant_id = ? ORDER BY created_at DESC",
+	return (await all<Omit<ApiKeyRow, "merchant_id" | "key_hash">>(env,
+		"SELECT id, mode, prefix, name, last_used_at, revoked_at, created_at FROM api_keys WHERE merchant_id = ? ORDER BY created_at DESC",
 		[merchantId])).map(summary);
 }
 
@@ -49,17 +49,14 @@ export async function revokeApiKey(env: Bindings, merchantId: string, id: string
 	return changed(await run(env, "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND merchant_id = ? AND revoked_at IS NULL", [nowIso(), id, merchantId]));
 }
 
-type WebhookRow = { id: string; merchant_id: string; url: string; secret_ciphertext: string;
-	secret_key_id: string; mode: ApiMode; enabled_events: string | null;
-	status: "active" | "disabled"; created_at: string; updated_at: string };
+type WebhookRow = { id: string; url: string; mode: ApiMode; enabled_events: string | null;
+	status: "active" | "disabled"; created_at: string };
 
-export type WebhookSummary = { id: string; url: string; mode: ApiMode; events: string[] | null;
-	status: "active" | "disabled"; createdAt: string; updatedAt: string };
+type WebhookSummary = { id: string; url: string; mode: ApiMode; events: string[] | null;
+	status: "active" | "disabled"; createdAt: string };
 
 function decodedKey(encoded: string, label: string): Uint8Array {
-	const raw = /^[0-9a-fA-F]{64}$/u.test(encoded)
-		? Uint8Array.from(encoded.match(/.{2}/gu) ?? [], (byte) => Number.parseInt(byte, 16))
-		: Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+	const raw = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
 	if (raw.byteLength !== 32) throw new Error(`${label} must be 32 bytes`);
 	return raw;
 }
@@ -124,17 +121,14 @@ export async function encryptWebhookSecret(env: Bindings, secret: string): Promi
 }
 
 export async function decryptWebhookSecret(env: Bindings, ciphertext: string, storedKeyId: string): Promise<string> {
-	const match = ciphertext.match(/^enc:v2:([A-Za-z0-9_.-]{1,64}):(.+)$/u);
-	const embeddedKeyId = match?.[1] ?? null;
-	if (embeddedKeyId && embeddedKeyId !== storedKeyId) throw new Error("Webhook ciphertext key ID mismatch");
-	const payload = match?.[2] ?? ciphertext;
-	const [nonce, encrypted] = payload.split(".");
-	if (!nonce || !encrypted) throw new Error("Invalid webhook ciphertext");
-	const nonceBytes = unbase64(nonce);
-	const encryptedBytes = unbase64(encrypted);
+	const match = ciphertext.match(/^enc:v2:([A-Za-z0-9_.-]{1,64}):([A-Za-z0-9+/]{16})\.([A-Za-z0-9+/]+={0,2})$/u);
+	if (!match) throw new Error("Invalid webhook ciphertext");
+	if (match[1] !== storedKeyId) throw new Error("Webhook ciphertext key ID mismatch");
+	const nonceBytes = unbase64(match[2]);
+	const encryptedBytes = unbase64(match[3]);
 	const plaintext = await crypto.subtle.decrypt(
 		{ name: "AES-GCM", iv: nonceBytes.buffer as ArrayBuffer,
-			...(embeddedKeyId ? { additionalData: webhookAad(storedKeyId) } : {}) },
+			additionalData: webhookAad(storedKeyId) },
 		await encryptionKey(env, storedKeyId),
 		encryptedBytes.buffer as ArrayBuffer,
 	);
@@ -162,7 +156,7 @@ export async function rotateWebhookEncryptionBatch(env: Bindings, limit = 25): P
 }> {
 	const activeKeyId = currentKeyId(env);
 	if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error("Invalid webhook rotation batch size");
-	const rows = await all<Pick<WebhookRow, "id" | "secret_ciphertext" | "secret_key_id">>(env,
+	const rows = await all<{ id: string; secret_ciphertext: string; secret_key_id: string }>(env,
 		`SELECT id, secret_ciphertext, secret_key_id FROM webhook_endpoints
 		 WHERE secret_key_id != ? ORDER BY updated_at, id LIMIT ?`, [activeKeyId, limit]);
 	let rotated = 0;
@@ -188,14 +182,14 @@ export async function createWebhookEndpoint(env: Bindings, merchantId: string, u
 	const id = `whe_${crypto.randomUUID()}`;
 	await run(env, "INSERT INTO webhook_endpoints(id, merchant_id, url, secret_ciphertext, secret_key_id, mode, enabled_events, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)",
 		[id, merchantId, url, encrypted.ciphertext, encrypted.keyId, mode, events ? JSON.stringify(events) : null, timestamp, timestamp]);
-	return { secret, endpoint: { id, url, mode, events, status: "active", createdAt: timestamp, updatedAt: timestamp } };
+	return { secret, endpoint: { id, url, mode, events, status: "active", createdAt: timestamp } };
 }
 
 export async function listWebhookEndpoints(env: Bindings, merchantId: string): Promise<WebhookSummary[]> {
-	return (await all<WebhookRow>(env, "SELECT id, merchant_id, url, secret_ciphertext, secret_key_id, mode, enabled_events, status, created_at, updated_at FROM webhook_endpoints WHERE merchant_id = ? ORDER BY created_at DESC", [merchantId]))
+	return (await all<WebhookRow>(env, "SELECT id, url, mode, enabled_events, status, created_at FROM webhook_endpoints WHERE merchant_id = ? ORDER BY created_at DESC", [merchantId]))
 		.map((row) => ({ id: row.id, url: row.url, mode: row.mode,
 			events: row.enabled_events ? JSON.parse(row.enabled_events) as string[] : null,
-			status: row.status, createdAt: row.created_at, updatedAt: row.updated_at }));
+			status: row.status, createdAt: row.created_at }));
 }
 
 export async function disableWebhookEndpoint(env: Bindings, merchantId: string, id: string): Promise<boolean> {
@@ -210,14 +204,14 @@ export async function listEvents(env: Bindings, merchantId: string, limit = 50, 
 	return (await all<{ id: string; type: string; object_id: string; mode: ApiMode; payload: string; created_at: string }>(env,
 		`SELECT id, type, object_id, mode, payload, created_at FROM events WHERE merchant_id = ? ${cursor} ORDER BY created_at DESC, id DESC LIMIT ?`, values))
 		.map((row) => ({ id: row.id, type: row.type, objectId: row.object_id,
-			payload: JSON.parse(row.payload), data: JSON.parse(row.payload), mode: row.mode, createdAt: row.created_at }));
+			payload: JSON.parse(row.payload), mode: row.mode, createdAt: row.created_at }));
 }
 
 export async function listWebhookDeliveries(env: Bindings, merchantId: string, limit = 50): Promise<Array<Record<string, unknown>>> {
 	return all<Record<string, unknown>>(env,
 		`SELECT d.id, d.event_id AS eventId, d.endpoint_id AS endpointId, e.type AS eventType, w.url,
-		 d.status, d.attempt_count AS attempt, d.attempt_count AS attemptCount,
-		 d.next_retry_at AS nextRetryAt, d.last_status_code AS responseCode, d.last_status_code AS lastStatusCode,
+		 d.status, d.attempt_count AS attempt,
+		 d.next_retry_at AS nextRetryAt, d.last_status_code AS responseCode,
 		 d.last_error AS lastError, d.delivered_at AS deliveredAt, d.created_at AS createdAt
 		 FROM webhook_deliveries d JOIN events e ON e.id = d.event_id JOIN webhook_endpoints w ON w.id = d.endpoint_id
 		 WHERE e.merchant_id = ? ORDER BY d.created_at DESC LIMIT ?`, [merchantId, limit]);

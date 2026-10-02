@@ -23,6 +23,15 @@ Las rutas públicas del runtime actual son:
 
 No se mantienen aliases `/checkout/*`, `/links/*` ni `/merchant/*`.
 
+Los cuerpos JSON admiten únicamente sus campos actuales: `expires_at`, `payer`,
+`source_chain_id` y `quote_id`, sin aliases camelCase ni campos adicionales.
+El registro de transacciones recibe sólo `source_tx_hash`. Las API keys se envían
+por `Authorization: Bearer`; `X-Api-Key` se rechaza. Cada dato de las respuestas
+tiene un solo campo: `key`, `intentId`, `payload`, `attempt` y `responseCode`.
+Los secretos de webhook usan exclusivamente `enc:v2` autenticado y claves base64
+de 32 bytes. La rotación de claves mantiene ese mismo formato. El scheduler es
+obligatorio para programar trabajos; `router_watch` identifica únicamente la cadena.
+
 `GATOPAGO_ENVIRONMENT` debe coincidir en ambos Workers. El binding local de Wrangler
 es un candidato: antes de desplegar hay que apuntarlo al Worker provisionado del
 entorno. La revocación local se comprueba en cada petición. Wallet Core reconcilia ADMIN
@@ -38,7 +47,7 @@ readmitir una llave no restaura sus sesiones anteriores.
 - `rails/onchain` contiene el acceso a Circle; `services` compone cotización, ejecución y conciliación.
 - `maintenance.ts` coordina el barrido periódico y la rotación de secretos de webhook.
 
-Settlement conserva en un mismo batch el pago, ledger, eventos y outbox. Dividir responsabilidades no divide esa transacción. Las lecturas HTTP de proveedores se cancelan al exceder 64 KiB.
+Settlement conserva en un mismo batch el pago, ledger, eventos y outbox. Dividir responsabilidades no divide esa transacción. Las lecturas HTTP se cancelan al exceder su límite: 1 KiB para identidad, 32 KiB para tarifas de Circle y 256 KiB para attestations.
 
 Se acepta RPC versión 3 con `claim.userId` (ID interno canónico), sin `uid` ni
 conversión de versiones anteriores. La persistencia usa `owner_user_id` y
@@ -52,6 +61,9 @@ pnpm install --frozen-lockfile
 pnpm dev
 pnpm verify
 ```
+
+`verify` incluye Knip (`pnpm check:unused`) para detectar archivos, dependencias
+y exports sin uso. TypeScript también rechaza variables y parámetros sin uso.
 
 Los comandos anteriores se ejecutan desde esta carpeta. Las ABIs se consumen
 mediante un snapshot de `@gatopago/shared/payment-abis` fijado en `vendor/`;
@@ -84,10 +96,18 @@ messages and settings, rename the bound queues, publish, verify bindings, and
 resume delivery. Deploy checks both target queues exist and does not
 automatically create replacements.
 
-`PAYMENTS_DB` retains ID `f2ab2200-100d-4ae4-9248-042a6e633b8a`; the binding uses
-the ID directly. D1 database names cannot be renamed, so the existing dashboard
-label is retained. No data migration, database deletion or live-payment
-enablement is part of this cleanup. See [D1 migration guidance](https://developers.cloudflare.com/d1/reference/migrations/).
+`PAYMENTS_DB` uses database `gatopago-flow`, ID
+`9b6e90e5-3016-4f5c-bb14-51879b8a1a52`.
+D1 database names cannot be renamed in place. Replacing a database requires
+explicit authorization, export, schema/data verification and a coordinated
+binding change. See [D1 migration guidance](https://developers.cloudflare.com/d1/reference/migrations/).
+
+The authorized replacement was deployed on 2026-10-02 from an isolated
+worktree, without publishing concurrent cleanup. The copy was checked against
+all 23 source tables, schema and foreign keys. The private SQL backup remains
+in this project's ignored `.wrangler/` directory; migration audit metadata is
+in Wallet Core's `.wrangler/`. Release commit:
+`8e5ec87478effb48bf65c64c10d0aac53d68710c`; no Git push was performed.
 Publicar requiere una autorización aparte y el árbol de este proyecto limpio.
 
 El modelo comercial actual mantiene un owner por merchant. Organization/Membership/Project/Customer son trabajo de producto futuro, no capas vacías añadidas a esta renovación.

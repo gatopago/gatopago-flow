@@ -38,7 +38,8 @@ if (!values['dry-run']) {
     execFileSync(process.execPath, [cli, 'queues', 'info', name, '--config', configFile, '--env-file', '.dev.vars.example'], { cwd: directory, stdio: 'inherit' });
   }
 }
-const args = [cli, 'deploy', '--config', configFile, '--env-file', '.dev.vars.example', '--minify'];
+const args = [cli, 'deploy'];
+args.push('--config', configFile, '--env-file', '.dev.vars.example', '--minify');
 if (values['dry-run']) args.push('--dry-run');
 if (values['secrets-file']) args.push('--secrets-file', resolve(values['secrets-file']));
 execFileSync(process.execPath, args, { cwd: directory, stdio: 'inherit' });

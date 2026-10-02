@@ -2,7 +2,7 @@ import type { Context, Next } from "hono";
 import { parseResourceId } from "@gatopago/shared/v3/primitives";
 import { ERR } from "@gatopago/shared/payment-errors";
 import type { Bindings } from "../env";
-import { discardResponseBody, readJsonBounded } from "../services/http";
+import { discardResponseBody, readJsonBounded } from "@gatopago/shared/http";
 
 type User = { user_id: string };
 type Variables = {

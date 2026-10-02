@@ -5,6 +5,7 @@ import type { PaymentAttempt, PaymentQuote } from "../domain/models";
 import { changed, first, nowIso, run } from "../stores/db";
 import { type AttemptRow, ATTEMPT_COLUMNS, mapAttempt } from './rows';
 import { feeLedgerStatements } from './fees';
+import { quoteInsertStatement } from './quotes';
 
 export async function getAttempt(env: Bindings, id: string): Promise<PaymentAttempt | null> {
 	const row = await first<AttemptRow>(env, `SELECT ${ATTEMPT_COLUMNS} FROM payment_attempts WHERE id = ? LIMIT 1`, [id]);
@@ -52,38 +53,8 @@ export async function insertQuoteAndAttempt(env: Bindings, input: {
 }): Promise<PaymentAttempt> {
 	try {
 		await env.PAYMENTS_DB.batch([
-			env.PAYMENTS_DB.prepare(
-			`INSERT INTO payment_quotes(id, intent_id, payer, source_chain_id, route, settlement_amount_atomic,
-			 platform_fee_atomic, cctp_fee_atomic, gross_payer_amount_atomic, fee_policy_id, fee_policy_version,
-			 fee_rule_id, platform_fee_bps, platform_fee_bearer, platform_fee_recipient, route_fee_cap_bps,
-			 fee_source, fee_observed_at, expires_at, quote_hash, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		).bind(input.quote.id, input.quote.intentId, input.quote.payer, input.quote.sourceChainId,
-			input.quote.route, input.quote.settlementAmountAtomic, input.quote.platformFeeAtomic,
-			input.quote.cctpFeeAtomic, input.quote.grossPayerAmountAtomic, input.quote.feePolicyId,
-			input.quote.feePolicyVersion, input.quote.feeRuleId, input.quote.platformFeeBps,
-			input.quote.platformFeeBearer, input.quote.platformFeeRecipient, input.quote.routeFeeCapBps,
-			input.quote.feeSource,
-			input.quote.feeObservedAt, input.quote.expiresAt, input.quote.quoteHash, input.quote.createdAt),
-		env.PAYMENTS_DB.prepare(
-			`INSERT INTO payment_attempts(id, attempt_hash, intent_id, quote_id, payer_user_id, payer_address,
-			 idempotency_key, source_chain_id, route, status, router_address, authorization_hash,
-			 authorization_json, signature, checkout_capability_hash, payer_proof_signature,
-			 payer_proof_message_hash, valid_after, valid_until, settlement_amount_atomic,
-			 platform_fee_atomic, cctp_fee_atomic, gross_payer_amount_atomic, fee_policy_id,
-			 fee_policy_version, fee_rule_id, platform_fee_bps, platform_fee_bearer,
-			 platform_fee_recipient, route_fee_cap_bps, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		).bind(input.attempt.id, input.attempt.attemptHash, input.attempt.intentId, input.attempt.quoteId,
-			input.attempt.payerUserId, input.attempt.payerAddress, input.idempotencyKey, input.attempt.sourceChainId,
-			input.attempt.route, input.attempt.routerAddress, input.attempt.authorizationHash,
-			JSON.stringify(input.attempt.authorization), input.attempt.signature, null, null, null, input.attempt.validAfter,
-			input.attempt.validUntil, input.attempt.settlementAmountAtomic, input.attempt.platformFeeAtomic,
-			input.attempt.cctpFeeAtomic, input.attempt.grossPayerAmountAtomic, input.attempt.feePolicyId,
-			input.attempt.feePolicyVersion, input.attempt.feeRuleId, input.attempt.platformFeeBps,
-			input.attempt.platformFeeBearer, input.attempt.platformFeeRecipient, input.attempt.routeFeeCapBps,
-			input.attempt.createdAt, input.attempt.updatedAt),
-		...feeLedgerStatements(env, input.attempt),
+			quoteInsertStatement(env, input.quote),
+			...attemptInsertStatements(env, input),
 		]);
 	} catch (error) {
 		const replay = await getAttemptByIdempotency(env, { intentId: input.attempt.intentId,
@@ -97,15 +68,17 @@ export async function insertQuoteAndAttempt(env: Bindings, input: {
 	return stored;
 }
 
-export async function insertAttempt(env: Bindings, input: {
+type AttemptInput = {
 	attempt: PaymentAttempt; idempotencyKey: string;
 	checkoutAccess?: {
 		capabilityHash: `0x${string}`;
 		payerProofSignature: `0x${string}`;
 		payerProofMessageHash: `0x${string}`;
 	};
-}): Promise<PaymentAttempt> {
-	await env.PAYMENTS_DB.batch([
+};
+
+function attemptInsertStatements(env: Bindings, input: AttemptInput): D1PreparedStatement[] {
+	return [
 		env.PAYMENTS_DB.prepare(
 			`INSERT INTO payment_attempts(id, attempt_hash, intent_id, quote_id, payer_user_id, payer_address,
 			 idempotency_key, source_chain_id, route, status, router_address, authorization_hash,
@@ -129,7 +102,11 @@ export async function insertAttempt(env: Bindings, input: {
 			input.attempt.platformFeeBearer, input.attempt.platformFeeRecipient, input.attempt.routeFeeCapBps,
 			input.attempt.createdAt, input.attempt.updatedAt),
 		...feeLedgerStatements(env, input.attempt),
-	]);
+	];
+}
+
+export async function insertAttempt(env: Bindings, input: AttemptInput): Promise<PaymentAttempt> {
+	await env.PAYMENTS_DB.batch(attemptInsertStatements(env, input));
 	const stored = await getAttempt(env, input.attempt.id);
 	if (!stored) throw new Error("Payment attempt creation was not durable");
 	return stored;

@@ -59,7 +59,7 @@ type PaymentRouterHealthRoute = {
 	configuredMaxFeeBps: number;
 };
 
-export type PaymentRouterHealth = {
+type PaymentRouterHealth = {
 	status: "disabled" | "ok" | "degraded" | "error";
 	routes: PaymentRouterHealthRoute[];
 	issues: string[];

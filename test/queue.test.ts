@@ -46,24 +46,31 @@ describe("Payments job scheduling", () => {
 		vi.setSystemTime(new Date("2026-08-25T12:00:00.000Z"));
 		try {
 			const { env, send, schedule } = testEnv({ scheduler: true });
-			expect(await schedulePaymentJob(env, { job: "cctp_attestation", resourceId: "op_1",
-				dedupeKey: "cctp-attestation:op_1", partition: "421614", delaySeconds: 5 })).toBe("scheduler");
+			await schedulePaymentJob(env, { job: "cctp_attestation", resourceId: "op_1",
+				dedupeKey: "cctp-attestation:op_1", partition: "421614", delaySeconds: 5 });
 			expect(send).not.toHaveBeenCalled();
 			expect(schedule).toHaveBeenCalledWith({ job: "cctp_attestation", resourceId: "op_1",
 				dedupeKey: "cctp-attestation:op_1", partition: "421614", runAt: Date.parse("2026-08-25T12:00:05.000Z") });
 		} finally { vi.useRealTimers(); }
 	});
 
-	it("falls back to Queue delay when the scheduler binding is intentionally absent", async () => {
+	it("rejects missing scheduler bindings without switching to Queue delay", async () => {
 		const { env, send } = testEnv();
-		expect(await schedulePaymentJob(env, { job: "cctp_attestation", resourceId: "op_2",
-			partition: "84532", delaySeconds: 5 })).toBe("queue");
-		expect(send.mock.calls[0]?.[1]).toEqual({ contentType: "json", delaySeconds: 5 });
+		await expect(schedulePaymentJob(env, { job: "cctp_attestation", resourceId: "op_2",
+			partition: "84532", delaySeconds: 5 })).rejects.toThrow("Payment job scheduler is unavailable");
+		expect(send).not.toHaveBeenCalled();
+	});
+
+	it("schedules zero-delay work through the same Durable Object", async () => {
+		const { env, send, schedule } = testEnv({ scheduler: true });
+		await schedulePaymentJob(env, { job: "cctp_attestation", resourceId: "op_3", delaySeconds: 0 });
+		expect(schedule).toHaveBeenCalledOnce();
+		expect(send).not.toHaveBeenCalled();
 	});
 
 	it("rejects negative and fractional delays", async () => {
 		const { env } = testEnv();
-		await expect(enqueuePaymentJob(env, { job: "router_watch", resourceId: "1", delaySeconds: -1 })).rejects.toThrow("non-negative integer");
+		await expect(schedulePaymentJob(env, { job: "router_watch", resourceId: "1", delaySeconds: -1 })).rejects.toThrow("non-negative integer");
 		await expect(schedulePaymentJob(env, { job: "router_watch", resourceId: "1", delaySeconds: 1.5 })).rejects.toThrow("non-negative integer");
 	});
 });

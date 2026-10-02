@@ -8,8 +8,8 @@ export async function getQuote(env: Bindings, id: string): Promise<PaymentQuote 
 	return row ? mapQuote(row) : null;
 }
 
-export async function insertQuote(env: Bindings, quote: PaymentQuote): Promise<void> {
-	await env.PAYMENTS_DB.prepare(
+export function quoteInsertStatement(env: Bindings, quote: PaymentQuote): D1PreparedStatement {
+	return env.PAYMENTS_DB.prepare(
 		`INSERT INTO payment_quotes(id, intent_id, payer, source_chain_id, route, settlement_amount_atomic,
 		 platform_fee_atomic, cctp_fee_atomic, gross_payer_amount_atomic, fee_policy_id, fee_policy_version,
 		 fee_rule_id, platform_fee_bps, platform_fee_bearer, platform_fee_recipient, route_fee_cap_bps,
@@ -20,5 +20,9 @@ export async function insertQuote(env: Bindings, quote: PaymentQuote): Promise<v
 		quote.grossPayerAmountAtomic, quote.feePolicyId, quote.feePolicyVersion, quote.feeRuleId,
 		quote.platformFeeBps, quote.platformFeeBearer, quote.platformFeeRecipient, quote.routeFeeCapBps,
 		quote.feeSource, quote.feeObservedAt,
-		quote.expiresAt, quote.quoteHash, quote.createdAt).run();
+		quote.expiresAt, quote.quoteHash, quote.createdAt);
+}
+
+export async function insertQuote(env: Bindings, quote: PaymentQuote): Promise<void> {
+	await quoteInsertStatement(env, quote).run();
 }

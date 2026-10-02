@@ -1,10 +1,10 @@
 import type { Hex } from "viem";
 import type { Bindings } from "../../env";
-import { discardResponseBody, readJsonBounded } from "../../services/http";
+import { discardResponseBody, readJsonBounded } from "@gatopago/shared/http";
 
 type CircleFee = { finalityThreshold: number; minimumFee: number };
 
-export type CircleCctpMessage = {
+type CircleCctpMessage = {
 	message: Hex;
 	attestation: Hex;
 	status: string;
