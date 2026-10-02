@@ -102,12 +102,12 @@ D1 database names cannot be renamed in place. Replacing a database requires
 explicit authorization, export, schema/data verification and a coordinated
 binding change. See [D1 migration guidance](https://developers.cloudflare.com/d1/reference/migrations/).
 
-The authorized replacement was deployed on 2026-10-02 from an isolated
-worktree, without publishing concurrent cleanup. The copy was checked against
-all 23 source tables, schema and foreign keys. The private SQL backup remains
-in this project's ignored `.wrangler/` directory; migration audit metadata is
-in Wallet Core's `.wrangler/`. Release commit:
-`8e5ec87478effb48bf65c64c10d0aac53d68710c`; no Git push was performed.
+The replacement was verified on 2026-10-02 against all 23 source tables,
+schema and foreign keys. Temporary migration entrypoints have been removed;
+normal production jobs remain active. Private SQL exports, audit records and
+the deployment commit bundle are preserved outside this repository in
+`../.operations-backups/2026-10-02/`. SDK snapshots 3.1.1 accept only the
+`production` namespace; local runtime tests use isolated emulated resources.
 Publicar requiere una autorización aparte y el árbol de este proyecto limpio.
 
 El modelo comercial actual mantiene un owner por merchant. Organization/Membership/Project/Customer son trabajo de producto futuro, no capas vacías añadidas a esta renovación.
