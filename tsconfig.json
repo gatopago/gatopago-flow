@@ -7,14 +7,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "skipLibCheck": true,
-    "lib": [
-      "ESNext",
-      "DOM"
-    ],
+    "lib": ["ESNext", "DOM"],
     "resolveJsonModule": true,
-    "types": [
-      "./worker-configuration.d.ts"
-    ]
+    "types": ["./worker-configuration.d.ts"]
   },
   "include": [
     "src",

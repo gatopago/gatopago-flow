@@ -19,32 +19,44 @@
     "CIRCLE_API_BASE_URL": "https://iris-api-sandbox.circle.com",
     "CHECKOUT_BASE_URL": "https://gatopago.com/pay"
   },
-  "services": [{ "binding": "WALLET_IDENTITY", "service": "gatopago-wallet-core", "entrypoint": "WalletIdentity" }],
+  "services": [
+    {
+      "binding": "WALLET_IDENTITY",
+      "service": "gatopago-wallet-core",
+      "entrypoint": "WalletIdentity"
+    }
+  ],
   "routes": [
     { "pattern": "api.gatopago.com/v1/*", "zone_name": "gatopago.com" },
     { "pattern": "api.gatopago.com/checkout/v1/*", "zone_name": "gatopago.com" }
   ],
-  "d1_databases": [{
-    "binding": "PAYMENTS_DB",
-    "database_name": "gatopago-flow",
-    "database_id": "9b6e90e5-3016-4f5c-bb14-51879b8a1a52",
-    "migrations_dir": "migrations"
-  }],
+  "d1_databases": [
+    {
+      "binding": "PAYMENTS_DB",
+      "database_name": "gatopago-flow",
+      "database_id": "9b6e90e5-3016-4f5c-bb14-51879b8a1a52",
+      "migrations_dir": "migrations"
+    }
+  ],
   "durable_objects": {
     "bindings": [{ "name": "PAYMENT_JOB_SCHEDULER", "class_name": "PaymentJobScheduler" }]
   },
-  "migrations": [{ "tag": "v1_payment_job_scheduler", "new_sqlite_classes": ["PaymentJobScheduler"] }],
+  "migrations": [
+    { "tag": "v1_payment_job_scheduler", "new_sqlite_classes": ["PaymentJobScheduler"] }
+  ],
   "queues": {
     "producers": [{ "binding": "PAYMENT_JOBS_QUEUE", "queue": "gatopago-flow-jobs" }],
-    "consumers": [{
-      "queue": "gatopago-flow-jobs",
-      "max_batch_size": 5,
-      "max_batch_timeout": 2,
-      "max_retries": 20,
-      "dead_letter_queue": "gatopago-flow-jobs-dlq",
-      "max_concurrency": 8,
-      "retry_delay": 15
-    }]
+    "consumers": [
+      {
+        "queue": "gatopago-flow-jobs",
+        "max_batch_size": 5,
+        "max_batch_timeout": 2,
+        "max_retries": 20,
+        "dead_letter_queue": "gatopago-flow-jobs-dlq",
+        "max_concurrency": 8,
+        "retry_delay": 15
+      }
+    ]
   },
   "triggers": { "crons": ["* * * * *"] },
   "observability": {

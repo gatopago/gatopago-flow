@@ -17,18 +17,24 @@
         "CIRCLE_API_BASE_URL": "https://iris-api-sandbox.circle.com",
         "CHECKOUT_BASE_URL": "https://gatopago.com/pay"
       },
-      "d1_databases": [{
-        "binding": "PAYMENTS_DB",
-        "database_name": "gatopago-flow-runtime-test",
-        "database_id": "00000000-0000-0000-0000-000000000002",
-        "migrations_dir": "migrations"
-      }],
+      "d1_databases": [
+        {
+          "binding": "PAYMENTS_DB",
+          "database_name": "gatopago-flow-runtime-test",
+          "database_id": "00000000-0000-0000-0000-000000000002",
+          "migrations_dir": "migrations"
+        }
+      ],
       "durable_objects": {
         "bindings": [{ "name": "PAYMENT_JOB_SCHEDULER", "class_name": "PaymentJobScheduler" }]
       },
-      "migrations": [{ "tag": "v1_payment_job_scheduler", "new_sqlite_classes": ["PaymentJobScheduler"] }],
+      "migrations": [
+        { "tag": "v1_payment_job_scheduler", "new_sqlite_classes": ["PaymentJobScheduler"] }
+      ],
       "queues": {
-        "producers": [{ "binding": "PAYMENT_JOBS_QUEUE", "queue": "gatopago-flow-jobs-runtime-test" }],
+        "producers": [
+          { "binding": "PAYMENT_JOBS_QUEUE", "queue": "gatopago-flow-jobs-runtime-test" }
+        ],
         "consumers": [{ "queue": "gatopago-flow-jobs-runtime-test", "max_batch_size": 1 }]
       }
     }

@@ -2,7 +2,9 @@
   "name": "gatopago-flow",
   "private": true,
   "packageManager": "pnpm@11.23.0",
-  "engines": { "node": "24.x" },
+  "engines": {
+    "node": "24.x"
+  },
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
@@ -11,10 +13,12 @@
     "cf-typegen": "wrangler types --env-interface CloudflareBindings --env-file .dev.vars.example",
     "cf-typegen:check": "wrangler types --env-interface CloudflareBindings --env-file .dev.vars.example --check",
     "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "check:unused": "node scripts/check-unused.mjs --treat-config-hints-as-errors",
     "check:query-plans": "node scripts/check-query-plans.mjs",
     "typecheck": "tsc --noEmit && pnpm typecheck:worker-runtime",
-    "verify": "pnpm cf-typegen:check && pnpm typecheck && pnpm lint && pnpm check:unused && pnpm check:query-plans && pnpm test && pnpm build",
+    "verify": "pnpm cf-typegen:check && pnpm typecheck && pnpm lint && pnpm format:check && pnpm check:unused && pnpm check:query-plans && pnpm test && pnpm build",
     "test": "pnpm test:unit && pnpm test:worker-runtime",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:worker-runtime": "vitest run --config vitest.worker.config.ts",
@@ -34,6 +38,7 @@
     "eslint": "^10.9.0",
     "globals": "^17.11.0",
     "knip": "^6.38.0",
+    "prettier": "3.9.9",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.67.0",
     "vitest": "^4.1.11",

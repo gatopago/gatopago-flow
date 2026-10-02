@@ -19,37 +19,51 @@
     "CIRCLE_API_BASE_URL": "https://iris-api-sandbox.circle.com",
     "CHECKOUT_BASE_URL": "http://localhost:3000/pay"
   },
-  "services": [{ "binding": "WALLET_IDENTITY", "service": "gatopago-wallet-core-local", "entrypoint": "WalletIdentity" }],
+  "services": [
+    {
+      "binding": "WALLET_IDENTITY",
+      "service": "gatopago-wallet-core-local",
+      "entrypoint": "WalletIdentity"
+    }
+  ],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
     "logs": { "enabled": true, "invocation_logs": true, "head_sampling_rate": 1 },
     "traces": { "enabled": true, "head_sampling_rate": 0.1 }
   },
-  "d1_databases": [{
-    "binding": "PAYMENTS_DB",
-    "database_name": "gatopago-flow-local",
-    "database_id": "00000000-0000-0000-0000-000000000002",
-    "migrations_dir": "migrations",
-    "remote": false
-  }],
+  "d1_databases": [
+    {
+      "binding": "PAYMENTS_DB",
+      "database_name": "gatopago-flow-local",
+      "database_id": "00000000-0000-0000-0000-000000000002",
+      "migrations_dir": "migrations",
+      "remote": false
+    }
+  ],
   "durable_objects": {
     "bindings": [{ "name": "PAYMENT_JOB_SCHEDULER", "class_name": "PaymentJobScheduler" }]
   },
-  "migrations": [{ "tag": "v1_payment_job_scheduler", "new_sqlite_classes": ["PaymentJobScheduler"] }],
+  "migrations": [
+    { "tag": "v1_payment_job_scheduler", "new_sqlite_classes": ["PaymentJobScheduler"] }
+  ],
   "queues": {
-    "producers": [{ "binding": "PAYMENT_JOBS_QUEUE", "queue": "gatopago-flow-jobs-local", "remote": false }],
-    "consumers": [{
-      "queue": "gatopago-flow-jobs-local",
-      "max_batch_size": 5,
-      "max_batch_timeout": 2,
-      "max_retries": 20,
-      "dead_letter_queue": "gatopago-flow-jobs-dlq-local",
-      // D1 serializes writes inside one database. Keep bounded parallelism so
-      // HTTP traffic and provider calls retain capacity while Queue scales.
-      "max_concurrency": 8,
-      "retry_delay": 15
-    }]
+    "producers": [
+      { "binding": "PAYMENT_JOBS_QUEUE", "queue": "gatopago-flow-jobs-local", "remote": false }
+    ],
+    "consumers": [
+      {
+        "queue": "gatopago-flow-jobs-local",
+        "max_batch_size": 5,
+        "max_batch_timeout": 2,
+        "max_retries": 20,
+        "dead_letter_queue": "gatopago-flow-jobs-dlq-local",
+        // D1 serializes writes inside one database. Keep bounded parallelism so
+        // HTTP traffic and provider calls retain capacity while Queue scales.
+        "max_concurrency": 8,
+        "retry_delay": 15
+      }
+    ]
   },
   "triggers": { "crons": ["* * * * *"] }
 }
