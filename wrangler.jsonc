@@ -19,8 +19,7 @@
     "PAYMENT_ROUTER_PREFLIGHT_ENABLED": "true",
     "PAYMENT_AUTHORIZATION_TTL_SECONDS": "600",
     "CIRCLE_API_BASE_URL": "https://iris-api-sandbox.circle.com",
-    "CHECKOUT_BASE_URL": "https://gatopago.com/pay",
-    "TURNSTILE_SECRET_KEY": "0x4AAAAAAFLgK4R7vnitoeJrUoH0KvOpHsc"
+    "CHECKOUT_BASE_URL": "https://gatopago.com/pay"
   },
   "services": [
     {
