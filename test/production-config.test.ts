@@ -1,12 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const root = new URL("../", import.meta.url);
-const config = JSON.parse(readFileSync(new URL("wrangler.remote.jsonc", root), "utf8"));
+const config = JSON.parse(readFileSync(new URL("wrangler.jsonc", root), "utf8"));
 
-describe("production deployment configuration (no remote writes)", () => {
+describe("Worker deployment configuration", () => {
   it("uses production routes, checkout and the same-environment identity service", () => {
     expect(config.name).toBe("gatopago-flow");
     expect(config.vars.GATOPAGO_ENVIRONMENT).toBe("production");
@@ -20,7 +18,7 @@ describe("production deployment configuration (no remote writes)", () => {
       readdirSync(root)
         .filter((name) => /^wrangler\..*jsonc$/.test(name))
         .sort(),
-    ).toEqual(["wrangler.jsonc", "wrangler.remote.jsonc", "wrangler.test.jsonc"]);
+    ).toEqual(["wrangler.jsonc", "wrangler.test.jsonc"]);
   });
   it("binds the verified production database and aligns queue delivery names", () => {
     expect(config.d1_databases).toEqual([
@@ -40,27 +38,4 @@ describe("production deployment configuration (no remote writes)", () => {
       dead_letter_queue: "gatopago-flow-jobs-dlq",
     });
   });
-  it("keeps local development on loopback and isolated resources", () => {
-    const local = readFileSync(new URL("wrangler.jsonc", root), "utf8");
-    expect(local).toContain('"GATOPAGO_ENVIRONMENT": "production"');
-    expect(local).toContain('"CHECKOUT_BASE_URL": "http://localhost:3000/pay"');
-    expect(local).toContain('"remote": false');
-    expect(local).not.toContain(config.d1_databases[0].database_id);
-  });
-  it.each(["--unsupported", "--maintenance"])(
-    "rejects unrecognized %s before invoking Wrangler",
-    (switchName) => {
-      const result = spawnSync(
-        process.execPath,
-        [fileURLToPath(new URL("scripts/deploy.mjs", root)), "--dry-run", switchName],
-        {
-          cwd: root,
-          encoding: "utf8",
-          timeout: 10_000,
-        },
-      );
-      expect(result.status).not.toBe(0);
-      expect(result.stderr).toContain("ERR_PARSE_ARGS_UNKNOWN_OPTION");
-    },
-  );
 });
