@@ -574,8 +574,6 @@ describe("independent Payments Worker", () => {
       ).status,
     ).toBe(409);
 
-    // Cancellation cannot revoke a signature already returned to a payer. If it
-    // executes before expiry, reconciliation must account for the late payment.
     expect(
       (
         await settleAttempt(env, {
