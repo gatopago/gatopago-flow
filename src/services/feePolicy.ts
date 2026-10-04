@@ -278,7 +278,6 @@ export function resolvePaymentFee(
   };
 }
 
-/** Maximum fee any configured rule could apply to this execution surface. */
 export function maximumConfiguredFeeBps(
   env: Bindings,
   input: {

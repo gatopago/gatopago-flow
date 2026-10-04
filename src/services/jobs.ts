@@ -139,8 +139,6 @@ export async function consumePaymentQueue(
     try {
       const claim = await claimPaymentJob(env, parsed);
       if (claim.state === "completed") {
-        // Also repairs the outbox status if Queue publish succeeded but the
-        // producer crashed before marking the row as enqueued.
         await completePaymentJob(env, parsed.dedupeKey);
         queueMessage.ack();
         continue;

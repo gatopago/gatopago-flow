@@ -6,9 +6,7 @@
   "workers_dev": false,
   "preview_urls": false,
   "compatibility_date": "2026-08-25",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ],
+  "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "PAYMENT_JOBS_QUEUE_NAME": "gatopago-flow-jobs",
     "GATOPAGO_ENVIRONMENT": "production",
@@ -57,9 +55,7 @@
   "migrations": [
     {
       "tag": "v1_payment_job_scheduler",
-      "new_sqlite_classes": [
-        "PaymentJobScheduler"
-      ]
+      "new_sqlite_classes": ["PaymentJobScheduler"]
     }
   ],
   "queues": {
@@ -82,9 +78,7 @@
     ]
   },
   "triggers": {
-    "crons": [
-      "* * * * *"
-    ]
+    "crons": ["* * * * *"]
   },
   "observability": {
     "enabled": true,

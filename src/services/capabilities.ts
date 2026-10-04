@@ -21,7 +21,6 @@ function enabledChainIds(env: Bindings): number[] {
     .filter(Number.isSafeInteger);
 }
 
-/** Live mode needs both an operator flag and an actually routable mainnet. */
 export function paymentModeCapabilities(
   env: Bindings,
   settlementChainId?: number | null,

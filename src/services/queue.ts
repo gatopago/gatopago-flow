@@ -34,9 +34,6 @@ export async function enqueuePaymentJob(env: Bindings, input: PaymentJobInput): 
   await env.PAYMENT_JOBS_QUEUE.send(paymentJobMessage(input), { contentType: "json" });
 }
 
-/**
- * Coalesces delayed work by domain partition before publishing it to Queue.
- */
 export async function schedulePaymentJob(
   env: Bindings,
   input: PaymentJobInput & { delaySeconds: number },
@@ -58,11 +55,6 @@ export async function schedulePaymentJob(
   });
 }
 
-/**
- * Publishes committed economic events after their D1 transaction. A send that
- * succeeds before the status update is safe to repeat because the Queue
- * consumer claims the stable outbox dedupe key.
- */
 export async function flushPaymentOutbox(env: Bindings, limit = 50): Promise<number> {
   if (!env.PAYMENT_JOBS_QUEUE) {
     throw new Error("Payment jobs Queue is unavailable");

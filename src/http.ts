@@ -207,7 +207,7 @@ app.get("/v1/health/ops", async (c) => {
 });
 
 app.route("/checkout/v1", checkoutRoutes);
-// Session collections resolve before the integrator router's API-key middleware.
+
 app.route("/v1/payment_links", linksRoutes);
 app.route("/v1/merchant", merchantRoutes);
 app.route("/v1", v1Routes);

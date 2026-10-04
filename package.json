@@ -23,14 +23,14 @@
     "build": "wrangler deploy --dry-run --outdir .wrangler/build"
   },
   "dependencies": {
-    "@gatopago/shared": "file:vendor/gatopago-shared-3.1.1.tgz",
+    "@gatopago/shared": "file:vendor/gatopago-shared-3.2.3.tgz",
     "hono": "4.13.7",
     "viem": "^2.55.19"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.22.0",
     "@eslint/js": "^10.0.1",
-    "@gatopago/environment": "file:vendor/gatopago-environment-3.1.1.tgz",
+    "@gatopago/environment": "file:vendor/gatopago-environment-3.2.3.tgz",
     "@types/node": "^24.13.3",
     "eslint": "^10.9.0",
     "globals": "^17.11.0",

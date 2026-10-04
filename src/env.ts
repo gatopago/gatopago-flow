@@ -1,8 +1,5 @@
 import type { PaymentJobMessage } from "@gatopago/shared/payment-contracts";
 
-// Binding names and runtime capabilities come from Wrangler's generated
-// CloudflareBindings. Secrets remain optional in local/test environments and
-// are validated explicitly before a real-money route is enabled.
 type OptionalBindingKey =
   | "ALLOWED_ORIGINS"
   | "OPS_HEALTH_TOKEN"

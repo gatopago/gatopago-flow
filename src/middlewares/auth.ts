@@ -24,7 +24,6 @@ function rejected(c: Context<PaymentsContext>, status: 401 | 503): Response {
   );
 }
 
-/** Wallet Core owns admission and credential revocation. Never cache an accepted session. */
 export async function authMiddleware(
   c: Context<PaymentsContext>,
   next: Next,

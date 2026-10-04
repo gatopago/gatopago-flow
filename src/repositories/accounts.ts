@@ -57,8 +57,7 @@ export async function upsertSettlementAccount(
 ): Promise<SettlementAccountResult> {
   const timestamp = nowIso(),
     wallet = input.walletAddress.toLowerCase();
-  // Record the original payload and decision in the same transaction as the update.
-  // Replays retain that decision; concurrent commands cannot downgrade the account.
+
   const results = await env.PAYMENTS_DB.batch<SettlementCommandRow>([
     env.PAYMENTS_DB.prepare(
       `INSERT INTO settlement_account_commands

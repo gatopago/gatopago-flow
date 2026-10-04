@@ -110,9 +110,6 @@ export async function createPaymentIntent(
       ).bind(eventId, eventId, timestamp, timestamp, timestamp, input.merchant.id, mode),
     ]);
   } catch (error) {
-    // D1 batch is transactional. If another request committed the same unique
-    // idempotency key after our initial read, recover its complete resource
-    // instead of surfacing the expected race as a 500.
     if (input.idempotencyKey) {
       const winner = await first<IntentRow>(
         env,

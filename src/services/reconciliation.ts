@@ -92,7 +92,6 @@ function jsonEvidence(value: unknown): string {
   return JSON.stringify(value, (_key, item) => (typeof item === "bigint" ? item.toString() : item));
 }
 
-/** CCTP v2 nonce occupies bytes 12..43 of MessageV2. */
 export function cctpMessageNonce(message: Hex): Hex {
   if (!isHex(message, { strict: true }) || message.length < 90) {
     throw new Error("CCTP message is too short");
@@ -132,7 +131,7 @@ async function verifyRouterCheckpoint(
       return checkpoint;
     }
   } catch {
-    /* A missing checkpoint block is also a reorg signal. */
+    /* empty */
   }
 
   const candidates = await listCanonicalRouterBlocksBefore(env, chainId, checkpoint.block_number);
@@ -145,7 +144,7 @@ async function verifyRouterCheckpoint(
         break;
       }
     } catch {
-      /* Continue walking the bounded local journal. */
+      /* empty */
     }
   }
   if (!ancestor) {
@@ -192,11 +191,6 @@ export class PaymentSourceEvidenceMismatchError extends Error {
 
 type SourceReceipt = Pick<TransactionReceipt, "status" | "from" | "to" | "logs">;
 
-/**
- * Validate only source-chain facts. Finality and settlement remain the job of
- * reconciliation. Keeping this pure lets the public registration endpoint
- * reject invented hashes without trusting anything returned by the browser.
- */
 export function validatePaymentSourceReceipt(input: {
   attempt: NonNullable<Awaited<ReturnType<typeof getAttempt>>>;
   intent: NonNullable<Awaited<ReturnType<typeof getPaymentIntent>>>;
@@ -552,8 +546,7 @@ async function recoverMintTransactionHash(
   ) {
     return input.storedHash as Hex;
   }
-  // This indexed lookup covers the narrow crash window where the permissionless
-  // mint landed but D1 never retained the broadcaster's transaction hash.
+
   const tip = await input.client.getBlockNumber();
   const logs = await input.client.getLogs({
     address: input.messageTransmitter,
@@ -590,9 +583,7 @@ async function finalizeCctpSettlement(
   ) {
     throw new Error("CCTP settlement evidence is incomplete");
   }
-  // Economic settlement wins before the transport row becomes terminal. A
-  // crash between these writes is replay-safe: settleAttempt is idempotent and
-  // the next pass can still advance the CCTP row.
+
   await settleAttempt(env, {
     attemptId: attempt.id,
     sourceTxHash: operation.sourceTxHash,
@@ -849,8 +840,6 @@ export async function scanPaymentRouters(env: Bindings, chainId: number): Promis
     toBlock: toBlock.toString(),
     logs: logs.length,
   });
-  // A completed scan should release its Queue lease even while signed but
-  // unbroadcast reservations exist. The scheduler enqueues one bounded scan per
-  // active chain on the next tick, while attempt_reconcile owns receipt retries.
+
   return toBlock >= confirmedTip;
 }

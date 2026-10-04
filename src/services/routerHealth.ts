@@ -309,10 +309,6 @@ async function readPaymentRouter(
   };
 }
 
-// Public on-chain configuration only. Bounded by the static payment-network
-// manifest; never stores user data, secrets, Promises or request-scoped I/O.
-// Concurrent misses may perform duplicate reads, which is safer in Workers
-// than sharing an unresolved operation across request contexts.
 const observationCache = new Map<string, { expiresAt: number; value: PaymentRouterObservation }>();
 const lastKnownObservations = new Map<
   string,
