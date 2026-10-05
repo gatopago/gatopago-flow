@@ -15,6 +15,12 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09
+        with:
+          version: v1.7.1
       - run: pnpm install --frozen-lockfile
-      - run: pnpm verify
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
       - run: pnpm audit --prod

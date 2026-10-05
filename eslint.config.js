@@ -9,7 +9,7 @@ export default defineConfig([
     rules: { curly: ["error", "all"] },
   },
   {
-    files: ["src/**/*.ts", "test/**/*.ts", "test-worker/**/*.ts", "*.config.ts"],
+    files: ["src/**/*.ts", "test/**/*.ts", "*.config.ts"],
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: {
       globals: { ...globals.node, ...globals.serviceworker },

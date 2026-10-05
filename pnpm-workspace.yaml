@@ -3,7 +3,6 @@ minimumReleaseAge: 10080
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
 overrides:
-  "@gatopago/shared@3.2.3": file:vendor/gatopago-shared-3.2.3.tgz
   # Keep optional peers aligned with the workspace compiler.
   typescript: 6.0.3
   "ws@<8.21.0": ">=8.21.0"

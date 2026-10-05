@@ -9,28 +9,24 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --minify",
-    "deploy:dry-run": "wrangler deploy --dry-run",
-    "db:migrate": "wrangler d1 migrations apply PAYMENTS_DB --remote",
-    "db:migrate:local": "wrangler d1 migrations apply PAYMENTS_DB --local",
-    "db:list": "wrangler d1 migrations list PAYMENTS_DB --remote",
-    "cf-typegen": "wrangler types --env-interface CloudflareBindings --strict-vars false",
+    "db:migrate": "wrangler d1 migrations apply FLOW_DB --remote",
+    "db:migrate:local": "wrangler d1 migrations apply FLOW_DB --local",
+    "db:list": "wrangler d1 migrations list FLOW_DB --remote",
+    "cf-typegen": "wrangler types --strict-vars false --env-file .dev.vars.example",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit && tsc --noEmit --project test-worker/tsconfig.json",
-    "test": "vitest run --config vitest.config.ts",
-    "test:worker": "vitest run --config vitest.worker.config.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit --project test/tsconfig.json",
+    "test": "vitest run",
     "build": "wrangler deploy --dry-run --outdir .wrangler/build"
   },
   "dependencies": {
-    "@gatopago/shared": "file:vendor/gatopago-shared-3.2.3.tgz",
-    "hono": "4.13.7",
-    "viem": "^2.55.19"
+    "@gatopago/shared": "file:vendor/gatopago-shared-5.5.0.tgz",
+    "jose": "^6.2.10",
+    "viem": "2.55.19"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.22.0",
     "@eslint/js": "^10.0.1",
-    "@gatopago/environment": "file:vendor/gatopago-environment-3.2.3.tgz",
     "@types/node": "^24.13.3",
     "eslint": "^10.9.0",
     "globals": "^17.11.0",
@@ -38,6 +34,6 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.67.0",
     "vitest": "^4.1.11",
-    "wrangler": "4.125.0"
+    "wrangler": "4.136.0"
   }
 }
