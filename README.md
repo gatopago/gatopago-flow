@@ -46,8 +46,28 @@ pnpm wrangler d1 create gatopago-flow   # paste the id into wrangler.jsonc
 pnpm db:migrate
 ```
 
-Set `SESSION_PUBLIC_JWK` in `wrangler.jsonc` and the secrets in `.dev.vars.example`, then
-`pnpm run deploy`. The router signer (`PAYMENT_SIGNER_PRIVATE_KEY`) must be the routers' `signer`.
+Then set the configuration below and `pnpm run deploy`. It serves `api.gatopago.com/v1/*` and
+`api.gatopago.com/checkout/v1/*` (routes in `wrangler.jsonc`).
+
+## Configuration
+
+Plain settings live in `wrangler.jsonc` (`vars`); secrets are set with
+`pnpm wrangler secret put <NAME>` and listed in `.dev.vars.example`. `/v1/health` answers 503 while
+any of them is missing or invalid.
+
+| Name | Kind | What it is | How to get it |
+|---|---|---|---|
+| `WEB_ORIGIN` | var | The web app's origin: CORS and the `checkout_url` of every intent | `https://gatopago.com` |
+| `WALLET_NETWORKS` | var | CAIP-2 ids of the networks payers can pay from | The networks with a payment router (`paymentRouter` in `@gatopago/shared`) |
+| `HOME_NETWORK` | var | Where merchants are paid; payments from other networks cross with CCTP | The web's `GATOPAGO_HOME_NETWORK` |
+| `PLATFORM_FEE_BPS` | var | GatoPago's fee, in basis points, paid by the payer | Business policy; `0` on testnet |
+| `SESSION_PUBLIC_JWK` | var | Verifies the sessions Wallet Core issues to the app | Wallet Core's `SESSION_PRIVATE_JWK` without its `d` field |
+| `FLOW_RPC_URLS` | secret | `{"<network>": "<url>"}`: RPC that reads the routers' events and payments | Public RPCs. Flow reads 100 blocks per `eth_getLogs`, more than Alchemy's free tier allows (10) |
+| `PAYMENT_SIGNER_PRIVATE_KEY` | secret | Signs each payment authorization the routers check | A dedicated key (`cast wallet new`); its address must be every router's `signer` (`setSigner`, called by the routers' owner) |
+| `WEBHOOK_SECRET_KEY` | secret | Encrypts merchants' webhook signing secrets at rest | `openssl rand -base64 32`; changing it makes the stored secrets unreadable |
+
+Bindings in `wrangler.jsonc`: `FLOW_DB` (D1, its id from `wrangler d1 create`) and
+`RATE_LIMITER`.
 
 `pnpm test` runs the Worker against a local D1 and anvil forks of Arbitrum Sepolia and Avalanche
 Fuji, where the deployed routers are paid with Circle's USDC. The payment tests are skipped until
