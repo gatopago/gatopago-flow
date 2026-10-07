@@ -1,22 +1,36 @@
 import { bytesToHex } from "viem";
 import type { Merchant } from "./auth";
+import type { Budget } from "./budget";
 import type { Config } from "./config";
 import { HttpError, json, newId, now, readJson } from "./http";
 
 const MAX_ATTEMPTS = 10;
 
 /** Statements that record `type` for the merchant and schedule its delivery to every endpoint. */
-export function recordEvent(env: Env, merchantId: string, type: string, data: unknown) {
+/**
+ * Statements that record an event and queue it for every webhook endpoint. With `afterChange`, they
+ * run in the same batch right after a statement and only if it changed a row, so a state change
+ * and its event happen together or not at all.
+ */
+export function recordEvent(
+  env: Env,
+  merchantId: string,
+  type: string,
+  data: unknown,
+  afterChange = false,
+) {
   const id = newId("evt");
   const createdAt = now();
   return [
     env.FLOW_DB.prepare(
-      "INSERT INTO events (id, merchant_id, type, data, created_at) VALUES (?, ?, ?, ?, ?)",
-    ).bind(id, merchantId, type, JSON.stringify(data), createdAt),
+      `INSERT INTO events (id, merchant_id, type, data, created_at)
+       SELECT ?, ?, ?, ?, ? WHERE ? OR changes() = 1`,
+    ).bind(id, merchantId, type, JSON.stringify(data), createdAt, afterChange ? 0 : 1),
     env.FLOW_DB.prepare(
       `INSERT INTO webhook_deliveries (event_id, endpoint_id, next_attempt_at)
-       SELECT ?, id, ? FROM webhook_endpoints WHERE merchant_id = ?`,
-    ).bind(id, createdAt, merchantId),
+       SELECT ?, id, ? FROM webhook_endpoints
+       WHERE merchant_id = ? AND EXISTS (SELECT 1 FROM events WHERE id = ?)`,
+    ).bind(id, createdAt, merchantId, id),
   ];
 }
 
@@ -112,7 +126,7 @@ export async function deleteEndpoint(env: Env, merchant: Merchant, id: string): 
  * Sends due deliveries: `POST` the event with `GatoPago-Signature: t=<time>,v1=<HMAC-SHA256 of
  * "<time>.<body>">`. Failures are retried with exponential backoff, up to 10 attempts.
  */
-export async function deliverWebhooks(env: Env, config: Config): Promise<void> {
+export async function deliverWebhooks(env: Env, config: Config, budget: Budget): Promise<void> {
   const { results } = await env.FLOW_DB.prepare(
     `SELECT d.event_id, d.endpoint_id, d.attempts, e.type, e.data, e.created_at, w.url, w.secret
      FROM webhook_deliveries d
@@ -132,8 +146,9 @@ export async function deliverWebhooks(env: Env, config: Config): Promise<void> {
       url: string;
       secret: string;
     }>();
+  const affordable = results.filter(() => budget.take());
   await Promise.all(
-    results.map(async (delivery) => {
+    affordable.map(async (delivery) => {
       const body = JSON.stringify({
         id: delivery.event_id,
         object: "event",

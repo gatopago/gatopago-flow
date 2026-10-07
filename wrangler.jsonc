@@ -11,9 +11,14 @@
 	],
 	"vars": {
 		"WEB_ORIGIN": "https://gatopago.com",
+		// GatoPago Business, the merchant console that manages charges, keys and webhooks. Empty turns
+		// it off.
+		"BUSINESS_ORIGIN": "https://business.gatopago.com",
 		"WALLET_NETWORKS": "eip155:421614,eip155:43113,eip155:10143",
 		"HOME_NETWORK": "eip155:421614",
 		"PLATFORM_FEE_BPS": "0",
+		// External requests per cron run: Workers Free allows 50 per invocation (Paid: 1000).
+		"SUBREQUESTS_PER_RUN": "45",
 		// Wallet Core's session public key (public part of its SESSION_PRIVATE_JWK).
 		"SESSION_PUBLIC_JWK": "{\"kty\":\"EC\",\"x\":\"-LlAabNPuClF2msazFDle5LfS1WRNONz5cH5XDO3BPY\",\"y\":\"_g3jYywiN237NNxPSnfRQ0qKVCADg5C_TPpksn2VC7A\",\"crv\":\"P-256\"}"
 	},

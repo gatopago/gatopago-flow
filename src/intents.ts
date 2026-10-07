@@ -57,6 +57,29 @@ export async function intentRow(env: Env, id: string, merchantId?: string): Prom
 }
 
 /**
+ * Moves `row` from the status it was read in, applying `changes`, and records `type` in the same
+ * transaction. Null when another request moved it first: then neither happens.
+ */
+export async function transition(
+  env: Env,
+  config: Config,
+  row: IntentRow,
+  changes: Partial<IntentRow>,
+  type: string,
+): Promise<IntentRow | null> {
+  const next = { ...row, ...changes };
+  const columns = Object.keys(changes) as (keyof IntentRow)[];
+  const [update] = await env.FLOW_DB.batch([
+    env.FLOW_DB.prepare(
+      `UPDATE payment_intents SET ${columns.map((column) => `${column} = ?`).join(", ")}
+       WHERE id = ? AND status = ?`,
+    ).bind(...columns.map((column) => next[column]), row.id, row.status),
+    ...recordEvent(env, row.merchant_id, type, presentIntent(next, config), true),
+  ]);
+  return update.meta.changes === 1 ? next : null;
+}
+
+/**
  * `POST /v1/payment_intents` `{ amount: "18.00", description?, metadata?, expires_in? }`. A repeated
  * `Idempotency-Key` returns the intent the first request created.
  */
@@ -108,38 +131,60 @@ export async function createIntent(
     throw new HttpError(400, "INVALID_IDEMPOTENCY_KEY");
   }
 
-  const id = newId("pi");
   const createdAt = now();
-  const row = await env.FLOW_DB.prepare(
-    `INSERT INTO payment_intents (id, onchain_id, merchant_id, amount, description, metadata, status,
-       expires_at, created_at, idempotency_key)
-     VALUES (?, ?, ?, ?, ?, ?, 'requires_payment', ?, ?, ?)
-     ON CONFLICT (merchant_id, idempotency_key) DO NOTHING RETURNING *`,
-  )
-    .bind(
-      id,
-      keccak256(toHex(id)),
+  const row: IntentRow = {
+    id: newId("pi"),
+    onchain_id: "",
+    merchant_id: merchant.id,
+    amount: amount.toString(),
+    description: (body.description as string | undefined) ?? null,
+    metadata: JSON.stringify(metadata),
+    status: "requires_payment",
+    expires_at: createdAt + expiresIn,
+    created_at: createdAt,
+    network: null,
+    transaction_hash: null,
+    payer: null,
+    paid_at: null,
+  };
+  row.onchain_id = keccak256(toHex(row.id));
+  const [insert] = await env.FLOW_DB.batch([
+    env.FLOW_DB.prepare(
+      `INSERT INTO payment_intents (id, onchain_id, merchant_id, amount, description, metadata, status,
+         expires_at, created_at, idempotency_key)
+       VALUES (?, ?, ?, ?, ?, ?, 'requires_payment', ?, ?, ?)
+       ON CONFLICT (merchant_id, idempotency_key) DO NOTHING`,
+    ).bind(
+      row.id,
+      row.onchain_id,
       merchant.id,
-      amount.toString(),
-      body.description ?? null,
-      JSON.stringify(metadata),
-      createdAt + expiresIn,
+      row.amount,
+      row.description,
+      row.metadata,
+      row.expires_at,
       createdAt,
       idempotencyKey,
-    )
-    .first<IntentRow>();
-  if (!row) {
-    const existing = await env.FLOW_DB.prepare(
-      "SELECT * FROM payment_intents WHERE merchant_id = ? AND idempotency_key = ?",
-    )
-      .bind(merchant.id, idempotencyKey)
-      .first<IntentRow>();
-    return json(presentIntent(existing!, config));
+    ),
+    ...recordEvent(env, merchant.id, "payment_intent.created", presentIntent(row, config), true),
+  ]);
+  if (insert.meta.changes === 1) {
+    return json(presentIntent(row, config), 201);
   }
-  await env.FLOW_DB.batch(
-    recordEvent(env, merchant.id, "payment_intent.created", presentIntent(row, config)),
-  );
-  return json(presentIntent(row, config), 201);
+  // The key was used before: the same request gets the same intent, a different one is refused.
+  const existing = (await env.FLOW_DB.prepare(
+    "SELECT * FROM payment_intents WHERE merchant_id = ? AND idempotency_key = ?",
+  )
+    .bind(merchant.id, idempotencyKey)
+    .first<IntentRow>())!;
+  if (
+    existing.amount !== row.amount ||
+    existing.description !== row.description ||
+    existing.metadata !== row.metadata ||
+    existing.expires_at - existing.created_at !== expiresIn
+  ) {
+    throw new HttpError(409, "IDEMPOTENCY_KEY_REUSED");
+  }
+  return json(presentIntent(existing, config));
 }
 
 /** `GET /v1/payment_intents` */
@@ -159,19 +204,13 @@ export async function readIntent(env: Env, config: Config, merchant: Merchant, i
 
 /** `POST /v1/payment_intents/:id/cancel`: only before it is paid. */
 export async function cancelIntent(env: Env, config: Config, merchant: Merchant, id: string) {
-  await intentRow(env, id, merchant.id);
-  const row = await env.FLOW_DB.prepare(
-    `UPDATE payment_intents SET status = 'canceled'
-     WHERE id = ? AND status = 'requires_payment' RETURNING *`,
-  )
-    .bind(id)
-    .first<IntentRow>();
+  const current = await intentRow(env, id, merchant.id);
+  const row =
+    current.status === "requires_payment" &&
+    (await transition(env, config, current, { status: "canceled" }, "payment_intent.canceled"));
   if (!row) {
     throw new HttpError(409, "INTENT_NOT_CANCELABLE");
   }
-  await env.FLOW_DB.batch(
-    recordEvent(env, merchant.id, "payment_intent.canceled", presentIntent(row, config)),
-  );
   return json(presentIntent(row, config));
 }
 
@@ -201,34 +240,39 @@ export async function markSucceeded(
   id: string,
   payment: { network: string; transactionHash: string | null; payer: string | null },
 ): Promise<IntentRow | null> {
-  const row = await env.FLOW_DB.prepare(
-    `UPDATE payment_intents SET status = 'succeeded', network = ?, transaction_hash = ?, payer = ?,
-       paid_at = ?
-     WHERE id = ? AND status != 'succeeded' RETURNING *`,
-  )
-    .bind(payment.network, payment.transactionHash, payment.payer, now(), id)
-    .first<IntentRow>();
-  if (row) {
-    await env.FLOW_DB.batch(
-      recordEvent(env, row.merchant_id, "payment_intent.succeeded", presentIntent(row, config)),
+  for (;;) {
+    const row = await intentRow(env, id);
+    if (row.status === "succeeded") {
+      return null;
+    }
+    const next = await transition(
+      env,
+      config,
+      row,
+      {
+        status: "succeeded",
+        network: payment.network,
+        transaction_hash: payment.transactionHash,
+        payer: payment.payer,
+        paid_at: now(),
+      },
+      "payment_intent.succeeded",
     );
+    // Moved meanwhile (processing, expired): read it again.
+    if (next) {
+      return next;
+    }
   }
-  return row;
 }
 
 /** Intents nobody paid in time. */
 export async function expireIntents(env: Env, config: Config): Promise<void> {
   const { results } = await env.FLOW_DB.prepare(
-    `UPDATE payment_intents SET status = 'expired'
-     WHERE status = 'requires_payment' AND expires_at <= ? RETURNING *`,
+    "SELECT * FROM payment_intents WHERE status = 'requires_payment' AND expires_at <= ? LIMIT 100",
   )
     .bind(now())
     .all<IntentRow>();
-  if (results.length) {
-    await env.FLOW_DB.batch(
-      results.flatMap((row) =>
-        recordEvent(env, row.merchant_id, "payment_intent.expired", presentIntent(row, config)),
-      ),
-    );
+  for (const row of results) {
+    await transition(env, config, row, { status: "expired" }, "payment_intent.expired");
   }
 }

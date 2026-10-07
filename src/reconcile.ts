@@ -1,8 +1,9 @@
 import { getAddress, parseEventLogs, type Hex, type Log } from "viem";
 import { crosschainStatus } from "@gatopago/shared/crosschain";
 import { paymentRouterAbi } from "@gatopago/shared/payments";
+import type { Budget } from "./budget";
 import type { Config, Network } from "./config";
-import { markSucceeded, presentIntent, type IntentRow } from "./intents";
+import { markSucceeded, transition, type IntentRow } from "./intents";
 import { recordEvent } from "./webhooks";
 
 /** Blocks read per `eth_getLogs` (public RPCs cap the range, Monad's at 100). */
@@ -43,35 +44,34 @@ export async function applyPayments(env: Env, config: Config, network: Network, 
     } else if (network.id === config.home.id) {
       await markSucceeded(env, config, intent.id, payment);
     } else {
-      const row = await env.FLOW_DB.prepare(
-        `UPDATE payment_intents SET status = 'processing', network = ?, transaction_hash = ?, payer = ?
-         WHERE id = ? AND status NOT IN ('processing', 'succeeded') RETURNING *`,
-      )
-        .bind(network.id, transactionHash, args.payer, intent.id)
-        .first<IntentRow>();
-      if (row) {
-        await env.FLOW_DB.batch(
-          recordEvent(
-            env,
-            row.merchant_id,
-            "payment_intent.processing",
-            presentIntent(row, config),
-          ),
-        );
-      }
+      await transition(
+        env,
+        config,
+        intent,
+        {
+          status: "processing",
+          network: network.id,
+          transaction_hash: transactionHash,
+          payer: args.payer,
+        },
+        "payment_intent.processing",
+      );
     }
   }
 }
 
 /** Reads each network's router events since the last block read, up to the latest one. */
-export async function scanNetworks(env: Env, config: Config): Promise<void> {
+export async function scanNetworks(env: Env, config: Config, budget: Budget): Promise<void> {
   for (const network of config.networks.values()) {
+    if (!budget.take()) {
+      return;
+    }
     const latest = await network.client.getBlockNumber();
     const cursor = await env.FLOW_DB.prepare("SELECT block FROM chain_cursors WHERE network = ?")
       .bind(network.id)
       .first<number>("block");
     let from = cursor === null ? latest : BigInt(cursor) + 1n;
-    for (let rounds = 0; from <= latest && rounds < 20; rounds++) {
+    for (let rounds = 0; from <= latest && rounds < 20 && budget.take(); rounds++) {
       const to = from + RANGE - 1n < latest ? from + RANGE - 1n : latest;
       const logs = await network.client.getLogs({
         address: network.paymentRouter,
@@ -93,9 +93,9 @@ export async function scanNetworks(env: Env, config: Config): Promise<void> {
 
 /**
  * Settles crossing payments once Circle's Forwarding Service minted to the merchant on the home
- * network (`forwardState: COMPLETE`, its mint transaction confirmed there).
+ * network (Circle reports its mint transaction, confirmed there).
  */
-export async function completeCrossings(env: Env, config: Config): Promise<void> {
+export async function completeCrossings(env: Env, config: Config, budget: Budget): Promise<void> {
   const { results } = await env.FLOW_DB.prepare(
     "SELECT * FROM payment_intents WHERE status = 'processing' LIMIT 50",
   ).all<IntentRow>();
@@ -103,6 +103,10 @@ export async function completeCrossings(env: Env, config: Config): Promise<void>
     const network = config.networks.get(intent.network!);
     if (!network) {
       continue;
+    }
+    // Circle's status, then the mint's receipt.
+    if (!budget.take(2)) {
+      return;
     }
     const status = await crosschainStatus(
       network,

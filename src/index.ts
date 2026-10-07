@@ -1,5 +1,6 @@
 import { authenticate } from "./auth";
 import { authorize, confirm, readCheckout } from "./checkout";
+import { Budget } from "./budget";
 import { config, type Config } from "./config";
 import { HttpError, json, rateLimit, withCors } from "./http";
 import {
@@ -103,9 +104,11 @@ export default {
       console.error(error);
       return json({ error_code: "SERVICE_UNAVAILABLE" }, 503);
     }
+    // The app (checkout, charges) and GatoPago Business (the merchant console).
+    const origin = request.headers.get("Origin");
     const cors = (response: Response) =>
-      request.headers.get("Origin") === settings.webOrigin
-        ? withCors(response, settings.webOrigin)
+      origin && (origin === settings.webOrigin || origin === settings.businessOrigin)
+        ? withCors(response, origin)
         : response;
     if (request.method === "OPTIONS") {
       return cors(new Response(null, { status: 204 }));
@@ -121,15 +124,21 @@ export default {
     }
   },
 
-  /** Every minute: payments onchain, crossings Circle completed, webhooks, expirations. */
+  /**
+   * Every minute: payments onchain first, then crossings Circle completed, webhooks and
+   * expirations, within `SUBREQUESTS_PER_RUN` external requests; what does not fit waits a minute.
+   */
   async scheduled(_controller, env) {
     const settings = await config(env);
-    const results = await Promise.allSettled([
-      scanNetworks(env, settings),
-      completeCrossings(env, settings),
-      deliverWebhooks(env, settings),
-      expireIntents(env, settings),
-    ]);
+    const budget = new Budget(settings.subrequestsPerRun);
+    const results = [
+      ...(await Promise.allSettled([scanNetworks(env, settings, budget)])),
+      ...(await Promise.allSettled([
+        completeCrossings(env, settings, budget),
+        deliverWebhooks(env, settings, budget),
+        expireIntents(env, settings),
+      ])),
+    ];
     for (const result of results) {
       if (result.status === "rejected") {
         console.error(result.reason);

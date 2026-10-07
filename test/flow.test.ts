@@ -162,6 +162,16 @@ describe("access", () => {
     expect((await api("/v1/payment_intents", { token: "not.a.session" })).status).toBe(401);
   });
 
+  it("answers the app and GatoPago Business across origins, nobody else", async () => {
+    const preflight = async (origin: string) =>
+      (
+        await api("/v1/payment_intents", { method: "OPTIONS", headers: { Origin: origin } })
+      ).headers.get("Access-Control-Allow-Origin");
+    expect(await preflight("https://gatopago.com")).toBe("https://gatopago.com");
+    expect(await preflight("https://business.gatopago.com")).toBe("https://business.gatopago.com");
+    expect(await preflight("https://evil.example")).toBeNull();
+  });
+
   it("lets the owner's session manage keys, which cannot create more keys", async () => {
     const { address, session, key } = await merchant();
     expect(await (await api("/v1/merchant", { token: session })).json()).toMatchObject({
@@ -202,6 +212,14 @@ describe("payment intents", () => {
     expect(created).toMatchObject({ amount: "18.5", currency: "USDC", status: "requires_payment" });
     expect(created.checkout_url).toBe(`https://gatopago.com/pay/${created.id}`);
     expect((await (await create()).json<{ id: string }>()).id).toBe(created.id);
+    // The same key with another request is a mistake, not the same intent.
+    const reused = await api("/v1/payment_intents", {
+      token: key,
+      body: { amount: "99.00" },
+      headers: { "Idempotency-Key": "order-42" },
+    });
+    expect(reused.status).toBe(409);
+    expect(await reused.json()).toEqual({ error_code: "IDEMPOTENCY_KEY_REUSED" });
     expect(
       (await api("/v1/payment_intents", { token: key, body: { amount: "1.1234567" } })).status,
     ).toBe(400);
@@ -224,13 +242,13 @@ describe("payment intents", () => {
     const { data } = await (
       await api("/v1/events", { token: key })
     ).json<{ data: { type: string }[] }>();
-    expect(data.map((event) => event.type)).toEqual(
-      expect.arrayContaining([
-        "payment_intent.created",
-        "payment_intent.canceled",
-        "payment_intent.succeeded",
-      ]),
-    );
+    // One event per change: repeating the creation recorded nothing more.
+    expect(data.map((event) => event.type).sort()).toEqual([
+      "payment_intent.canceled",
+      "payment_intent.created",
+      "payment_intent.created",
+      "payment_intent.succeeded",
+    ]);
   });
 
   it("expires the ones nobody paid", async () => {

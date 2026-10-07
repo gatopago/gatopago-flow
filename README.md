@@ -61,6 +61,7 @@ any of them is missing or invalid.
 | `WALLET_NETWORKS` | var | CAIP-2 ids of the networks payers can pay from | The networks with a payment router (`paymentRouter` in `@gatopago/shared`) |
 | `HOME_NETWORK` | var | Where merchants are paid; payments from other networks cross with CCTP | The web's `GATOPAGO_HOME_NETWORK` |
 | `PLATFORM_FEE_BPS` | var | GatoPago's fee, in basis points, paid by the payer | Business policy; `0` on testnet |
+| `SUBREQUESTS_PER_RUN` | var | External requests one cron run may make: payments are read first, then crossings and webhooks; the rest waits a minute | Workers Free allows 50 per invocation: `45`. Workers Paid: up to `1000` |
 | `SESSION_PUBLIC_JWK` | var | Verifies the sessions Wallet Core issues to the app | Wallet Core's `SESSION_PRIVATE_JWK` without its `d` field |
 | `FLOW_RPC_URLS` | secret | `{"<network>": "<url>"}`: RPC that reads the routers' events and payments | Public RPCs. Flow reads 100 blocks per `eth_getLogs`, more than Alchemy's free tier allows (10) |
 | `PAYMENT_SIGNER_PRIVATE_KEY` | secret | Signs each payment authorization the routers check | A dedicated key (`cast wallet new`); its address must be every router's `signer` (`setSigner`, called by the routers' owner) |

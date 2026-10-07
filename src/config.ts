@@ -9,6 +9,8 @@ export interface Network extends WalletNetwork {
 
 export interface Config {
   readonly webOrigin: string;
+  /** GatoPago Business (merchant console), or `null` when off. */
+  readonly businessOrigin: string | null;
   readonly networks: ReadonlyMap<string, Network>;
   /** Where merchants receive. */
   readonly home: Network;
@@ -20,6 +22,8 @@ export interface Config {
   readonly webhookKey: CryptoKey;
   /** Testnet deployments issue `sk_test_` keys and can simulate payments. */
   readonly testnet: boolean;
+  /** External requests one cron run may make (Workers Free: 50 per invocation). */
+  readonly subrequestsPerRun: number;
 }
 
 class ConfigError extends Error {}
@@ -57,6 +61,10 @@ export async function config(env: Env): Promise<Config> {
   if (fee < 0n || fee > 100n) {
     throw new ConfigError("INVALID_PLATFORM_FEE_BPS");
   }
+  const subrequestsPerRun = Number(required(env, "SUBREQUESTS_PER_RUN"));
+  if (!Number.isSafeInteger(subrequestsPerRun) || subrequestsPerRun < 5) {
+    throw new ConfigError("INVALID_SUBREQUESTS_PER_RUN");
+  }
   const signerKey = required(env, "PAYMENT_SIGNER_PRIVATE_KEY");
   if (!isHex(signerKey) || signerKey.length !== 66) {
     throw new ConfigError("INVALID_PAYMENT_SIGNER_PRIVATE_KEY");
@@ -69,6 +77,7 @@ export async function config(env: Env): Promise<Config> {
   }
   return {
     webOrigin: new URL(required(env, "WEB_ORIGIN")).origin,
+    businessOrigin: env.BUSINESS_ORIGIN ? new URL(env.BUSINESS_ORIGIN).origin : null,
     networks,
     home,
     platformFeeBps: fee,
@@ -79,5 +88,6 @@ export async function config(env: Env): Promise<Config> {
       "decrypt",
     ]),
     testnet: [...networks.values()].every((network) => network.chain.testnet),
+    subrequestsPerRun,
   };
 }
