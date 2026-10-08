@@ -6,7 +6,6 @@ import { HttpError, json, newId, now, readJson } from "./http";
 
 const MAX_ATTEMPTS = 10;
 
-/** Statements that record `type` for the merchant and schedule its delivery to every endpoint. */
 /**
  * Statements that record an event and queue it for every webhook endpoint. With `afterChange`, they
  * run in the same batch right after a statement and only if it changed a row, so a state change

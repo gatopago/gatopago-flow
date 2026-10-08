@@ -1,80 +1,72 @@
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "gatopago-flow",
-	"account_id": "c26e82cd341803c9136e19e668da67c6",
-	"main": "src/index.ts",
-	"workers_dev": false,
-	"preview_urls": false,
-	"compatibility_date": "2026-09-08",
-	"compatibility_flags": [
-		"nodejs_compat"
-	],
-	"vars": {
-		"WEB_ORIGIN": "https://gatopago.com",
-		// GatoPago Business, the merchant console that manages charges, keys and webhooks. Empty turns
-		// it off.
-		"BUSINESS_ORIGIN": "https://business.gatopago.com",
-		"WALLET_NETWORKS": "eip155:421614,eip155:43113,eip155:10143",
-		"HOME_NETWORK": "eip155:421614",
-		"PLATFORM_FEE_BPS": "0",
-		// External requests per cron run: Workers Free allows 50 per invocation (Paid: 1000).
-		"SUBREQUESTS_PER_RUN": "45",
-		// Wallet Core's session public key (public part of its SESSION_PRIVATE_JWK).
-		"SESSION_PUBLIC_JWK": "{\"kty\":\"EC\",\"x\":\"-LlAabNPuClF2msazFDle5LfS1WRNONz5cH5XDO3BPY\",\"y\":\"_g3jYywiN237NNxPSnfRQ0qKVCADg5C_TPpksn2VC7A\",\"crv\":\"P-256\"}"
-	},
-	// Secrets: FLOW_RPC_URLS, PAYMENT_SIGNER_PRIVATE_KEY, WEBHOOK_SECRET_KEY (see .dev.vars.example).
-	"routes": [
-		{
-			"pattern": "api.gatopago.com/v1/*",
-			"zone_name": "gatopago.com"
-		},
-		{
-			"pattern": "api.gatopago.com/checkout/v1/*",
-			"zone_name": "gatopago.com"
-		}
-	],
-	"d1_databases": [
-		{
-			"binding": "FLOW_DB",
-			"database_name": "gatopago-flow",
-			"database_id": "669a6c84-89f8-47a8-9481-49e2c36e9779",
-			"migrations_dir": "migrations"
-		}
-	],
-	"ratelimits": [
-		{
-			"name": "RATE_LIMITER",
-			"namespace_id": "1002",
-			"simple": {
-				"limit": 120,
-				"period": 60
-			}
-		}
-	],
-	"triggers": {
-		"crons": [
-			"* * * * *"
-		]
-	},
-	"migrations": [
-		{
-			"tag": "v1_payment_job_scheduler",
-			"new_sqlite_classes": [
-				"PaymentJobScheduler"
-			]
-		},
-		{
-			"tag": "v2_flow",
-			"deleted_classes": [
-				"PaymentJobScheduler"
-			]
-		}
-	],
-	"observability": {
-		"enabled": true,
-		"logs": {
-			"enabled": true,
-			"invocation_logs": true
-		}
-	}
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gatopago-flow",
+  "account_id": "c26e82cd341803c9136e19e668da67c6",
+  "main": "src/index.ts",
+  "workers_dev": false,
+  "preview_urls": false,
+  "compatibility_date": "2026-09-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "WEB_ORIGIN": "https://gatopago.com",
+    // GatoPago Business, the merchant console that manages charges, keys and webhooks. Empty turns
+    // it off.
+    "BUSINESS_ORIGIN": "https://business.gatopago.com",
+    "WALLET_NETWORKS": "eip155:421614,eip155:43113,eip155:10143",
+    "HOME_NETWORK": "eip155:421614",
+    "PLATFORM_FEE_BPS": "0",
+    // External requests per cron run: Workers Free allows 50 per invocation (Paid: 1000).
+    "SUBREQUESTS_PER_RUN": "45",
+    // Wallet Core's session public key (public part of its SESSION_PRIVATE_JWK).
+    "SESSION_PUBLIC_JWK": "{\"kty\":\"EC\",\"x\":\"-LlAabNPuClF2msazFDle5LfS1WRNONz5cH5XDO3BPY\",\"y\":\"_g3jYywiN237NNxPSnfRQ0qKVCADg5C_TPpksn2VC7A\",\"crv\":\"P-256\"}"
+  },
+  // Secrets: FLOW_RPC_URLS, PAYMENT_SIGNER_PRIVATE_KEY, WEBHOOK_SECRET_KEY (see .dev.vars.example).
+  "routes": [
+    {
+      "pattern": "api.gatopago.com/v1/*",
+      "zone_name": "gatopago.com"
+    },
+    {
+      "pattern": "api.gatopago.com/checkout/v1/*",
+      "zone_name": "gatopago.com"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "FLOW_DB",
+      "database_name": "gatopago-flow",
+      "database_id": "669a6c84-89f8-47a8-9481-49e2c36e9779",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    }
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "migrations": [
+    {
+      "tag": "v1_payment_job_scheduler",
+      "new_sqlite_classes": ["PaymentJobScheduler"]
+    },
+    {
+      "tag": "v2_flow",
+      "deleted_classes": ["PaymentJobScheduler"]
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  }
 }

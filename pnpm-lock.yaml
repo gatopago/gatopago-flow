@@ -17,8 +17,8 @@ importers:
   .:
     dependencies:
       '@gatopago/shared':
-        specifier: file:vendor/gatopago-shared-6.10.0.tgz
-        version: file:vendor/gatopago-shared-6.10.0.tgz(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)(zod@4.4.3)
+        specifier: file:vendor/gatopago-shared-6.13.0.tgz
+        version: file:vendor/gatopago-shared-6.13.0.tgz(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)(zod@4.4.3)
       jose:
         specifier: ^6.2.10
         version: 6.2.12
@@ -359,10 +359,15 @@ packages:
       '@noble/hashes':
         optional: true
 
-  '@gatopago/shared@file:vendor/gatopago-shared-6.10.0.tgz':
-    resolution: {integrity: sha512-H0uePFcoq809b0mZQSogY+Y6uf92AazTes20vnPQnK38RhQBGYR9tMiUcB+d/gLxt/oH+3bK3kUwwEr4WeQQdA==, tarball: file:vendor/gatopago-shared-6.10.0.tgz}
-    version: 6.10.0
+  '@gatopago/shared@file:vendor/gatopago-shared-6.13.0.tgz':
+    resolution: {integrity: sha512-W0LifAYnru/OoBepC+LLs4ZX/RfufMBM3T0qU7wIkbjXKeXvCJeZmEgyFOA1tte4rgrbqM8A94yPhuRt8PrWKA==, tarball: file:vendor/gatopago-shared-6.13.0.tgz}
+    version: 6.13.0
     engines: {node: '>=24'}
+    peerDependencies:
+      '@category-labs/mera': 0.2.0
+    peerDependenciesMeta:
+      '@category-labs/mera':
+        optional: true
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -2009,9 +2014,12 @@ snapshots:
     optionalDependencies:
       '@noble/hashes': 2.4.0
 
-  '@gatopago/shared@file:vendor/gatopago-shared-6.10.0.tgz(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)(zod@4.4.3)':
+  '@gatopago/shared@file:vendor/gatopago-shared-6.13.0.tgz(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)(zod@4.4.3)':
     dependencies:
+      '@scure/bip32': 1.7.0
+      '@scure/bip39': 1.6.0
       '@stellar/stellar-sdk': 17.2.0(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
+      ox: 0.14.34(typescript@6.0.3)(zod@4.4.3)
       viem: 2.55.19(typescript@6.0.3)(zod@4.4.3)
     transitivePeerDependencies:
       - bufferutil

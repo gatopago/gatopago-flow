@@ -1,5 +1,5 @@
 import { bytesToHex } from "viem";
-import { sha256, type Merchant } from "./auth";
+import { keyHash, type Merchant } from "./auth";
 import type { Config } from "./config";
 import { HttpError, json, newId, now, readJson } from "./http";
 
@@ -30,7 +30,7 @@ export async function createApiKey(env: Env, config: Config, merchant: Merchant)
   await env.FLOW_DB.prepare(
     "INSERT INTO api_keys (id, merchant_id, key_hash, last4, created_at) VALUES (?, ?, ?, ?, ?)",
   )
-    .bind(id, merchant.id, await sha256(key), key.slice(-4), createdAt)
+    .bind(id, merchant.id, keyHash(key), key.slice(-4), createdAt)
     .run();
   return json({ id, object: "api_key", key, last4: key.slice(-4), created_at: createdAt }, 201);
 }

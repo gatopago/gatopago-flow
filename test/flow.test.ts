@@ -15,6 +15,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { walletNetworks } from "@gatopago/shared/networks";
 import { paymentRouterAbi, type Payment } from "@gatopago/shared/payments";
+import { readJson } from "../src/http";
 import worker from "../src/index";
 import { FORKS, PAYER_KEY, forkUrl } from "./forks";
 
@@ -151,6 +152,29 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.restoreAllMocks());
+
+describe("request bodies", () => {
+  it("stop being read as soon as they are too large, and must be JSON objects", async () => {
+    let pulled = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 16_384;
+        controller.enqueue(new Uint8Array(16_384).fill(32));
+      },
+    });
+    const post = (body: BodyInit) =>
+      new Request("https://flow.test/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        duplex: "half",
+      } as RequestInit);
+    await expect(readJson(post(endless))).rejects.toThrow("BODY_TOO_LARGE");
+    expect(pulled).toBeLessThan(64 * 1024);
+    await expect(readJson(post("null"))).rejects.toThrow("INVALID_JSON");
+    expect(await readJson(post('{"amount":"1.00"}'))).toEqual({ amount: "1.00" });
+  });
+});
 
 describe("access", () => {
   it("answers health and rejects requests without a valid key or session", async () => {

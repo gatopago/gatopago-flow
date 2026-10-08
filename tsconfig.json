@@ -7,10 +7,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "skipLibCheck": true,
-    "lib": [
-      "ESNext",
-      "DOM"
-    ],
+    "lib": ["ESNext", "DOM"],
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true
   },

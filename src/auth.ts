@@ -1,5 +1,5 @@
 import { importJWK, jwtVerify } from "jose";
-import { bytesToHex, getAddress, type Address } from "viem";
+import { getAddress, sha256, stringToBytes, type Address } from "viem";
 import type { Config } from "./config";
 import { HttpError, newId, now } from "./http";
 
@@ -9,10 +9,8 @@ export interface Merchant {
   readonly name: string | null;
 }
 
-export const sha256 = async (value: string) =>
-  bytesToHex(
-    new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))),
-  );
+/** What is stored of an API key: its SHA-256, never the key. */
+export const keyHash = (key: string) => sha256(stringToBytes(key));
 
 /**
  * The merchant behind a request: an API key (`Bearer sk_…`, server to server) or a GatoPago session
@@ -38,7 +36,7 @@ export async function authenticate(
        JOIN merchants ON merchants.id = api_keys.merchant_id
        WHERE api_keys.key_hash = ? AND api_keys.revoked_at IS NULL`,
     )
-      .bind(await sha256(token))
+      .bind(keyHash(token))
       .first<Merchant>();
     if (!merchant) {
       throw new HttpError(401, "UNAUTHENTICATED");
