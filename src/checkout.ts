@@ -1,10 +1,10 @@
-import { formatUnits, isAddress, isHash, type Address, type Hex } from "viem";
-import { crosschainFee } from "@gatopago/shared/crosschain";
-import { paymentTotal, paymentTypedData, type Payment } from "@gatopago/shared/payments";
-import type { Config } from "./config";
-import { HttpError, json, now, rateLimit, readJson } from "./http";
-import { intentRow, presentIntent } from "./intents";
-import { applyPayments } from "./reconcile";
+import { formatUnits, isAddress, isHash, type Address, type Hex } from 'viem';
+import { crosschainFee } from '@gatopago/shared/crosschain';
+import { paymentTotal, paymentTypedData, type Payment } from '@gatopago/shared/payments';
+import type { Config } from './config';
+import { HttpError, json, now, rateLimit, readJson } from './http';
+import { intentRow, presentIntent } from './intents';
+import { applyPayments } from './reconcile';
 
 /** An authorization is valid for 10 minutes (and never past the intent's expiry). */
 const AUTHORIZATION_SECONDS = 600;
@@ -12,7 +12,7 @@ const AUTHORIZATION_SECONDS = 600;
 /** `GET /checkout/v1/:id`: what the payer sees. Public: the id is the capability. */
 export async function readCheckout(env: Env, config: Config, id: string): Promise<Response> {
   const row = await intentRow(env, id);
-  const merchant = await env.FLOW_DB.prepare("SELECT name, address FROM merchants WHERE id = ?")
+  const merchant = await env.FLOW_DB.prepare('SELECT name, address FROM merchants WHERE id = ?')
     .bind(row.merchant_id)
     .first<{ name: string | null; address: Address }>();
   return json({
@@ -31,19 +31,19 @@ export async function readCheckout(env: Env, config: Config, id: string): Promis
  * crosses with CCTP, whose fee ceiling the payer covers.
  */
 export async function authorize(request: Request, env: Env, config: Config, id: string) {
-  await rateLimit(env, `authorize:${request.headers.get("CF-Connecting-IP") ?? "unknown"}`);
+  await rateLimit(env, `authorize:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`);
   const body = await readJson<{ payer?: unknown; network?: unknown }>(request);
   const network = config.networks.get(String(body.network));
-  if (!network || typeof body.payer !== "string" || !isAddress(body.payer)) {
-    throw new HttpError(400, "INVALID_REQUEST");
+  if (!network || typeof body.payer !== 'string' || !isAddress(body.payer)) {
+    throw new HttpError(400, 'INVALID_REQUEST');
   }
   const row = await intentRow(env, id);
-  if (row.status !== "requires_payment" || row.expires_at <= now()) {
-    throw new HttpError(409, "INTENT_NOT_PAYABLE");
+  if (row.status !== 'requires_payment' || row.expires_at <= now()) {
+    throw new HttpError(409, 'INTENT_NOT_PAYABLE');
   }
-  const merchant = await env.FLOW_DB.prepare("SELECT address FROM merchants WHERE id = ?")
+  const merchant = await env.FLOW_DB.prepare('SELECT address FROM merchants WHERE id = ?')
     .bind(row.merchant_id)
-    .first<Address>("address");
+    .first<Address>('address');
   const amount = BigInt(row.amount);
   const crossing = network.id !== config.home.id;
   const payment: Payment = {
@@ -78,16 +78,16 @@ export async function authorize(request: Request, env: Env, config: Config, id: 
  * payer has the transaction, instead of waiting for the next scan.
  */
 export async function confirm(request: Request, env: Env, config: Config, id: string) {
-  await rateLimit(env, `confirm:${request.headers.get("CF-Connecting-IP") ?? "unknown"}`);
+  await rateLimit(env, `confirm:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`);
   const body = await readJson<{ network?: unknown; transaction_hash?: unknown }>(request);
   const network = config.networks.get(String(body.network));
-  if (!network || typeof body.transaction_hash !== "string" || !isHash(body.transaction_hash)) {
-    throw new HttpError(400, "INVALID_REQUEST");
+  if (!network || typeof body.transaction_hash !== 'string' || !isHash(body.transaction_hash)) {
+    throw new HttpError(400, 'INVALID_REQUEST');
   }
   const receipt = await network.client
     .getTransactionReceipt({ hash: body.transaction_hash })
     .catch(() => null);
-  if (receipt?.status === "success") {
+  if (receipt?.status === 'success') {
     await applyPayments(
       env,
       config,

@@ -16,10 +16,15 @@
     "HOME_NETWORK": "eip155:421614",
     "PLATFORM_FEE_BPS": "0",
     // External requests per cron run: Workers Free allows 50 per invocation (Paid: 1000).
-    "SUBREQUESTS_PER_RUN": "45",
-    // Wallet Core's session public key (public part of its SESSION_PRIVATE_JWK).
-    "SESSION_PUBLIC_JWK": "{\"kty\":\"EC\",\"x\":\"-LlAabNPuClF2msazFDle5LfS1WRNONz5cH5XDO3BPY\",\"y\":\"_g3jYywiN237NNxPSnfRQ0qKVCADg5C_TPpksn2VC7A\",\"crv\":\"P-256\"}"
+    "SUBREQUESTS_PER_RUN": "45"
   },
+  // Wallet Core answers whether a GatoPago session still counts (it issues and ends them).
+  "services": [
+    {
+      "binding": "WALLET_CORE",
+      "service": "gatopago-wallet-core"
+    }
+  ],
   // Secrets: FLOW_RPC_URLS, PAYMENT_SIGNER_PRIVATE_KEY, WEBHOOK_SECRET_KEY (see .dev.vars.example).
   "routes": [
     {

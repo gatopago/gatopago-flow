@@ -1,8 +1,8 @@
-import { bytesToHex } from "viem";
-import type { Merchant } from "./auth";
-import type { Budget } from "./budget";
-import type { Config } from "./config";
-import { HttpError, json, newId, now, readJson } from "./http";
+import { bytesToHex } from 'viem';
+import type { Merchant } from './auth';
+import type { Budget } from './budget';
+import type { Config } from './config';
+import { HttpError, json, newId, now, readJson } from './http';
 
 const MAX_ATTEMPTS = 10;
 
@@ -18,7 +18,7 @@ export function recordEvent(
   data: unknown,
   afterChange = false,
 ) {
-  const id = newId("evt");
+  const id = newId('evt');
   const createdAt = now();
   return [
     env.FLOW_DB.prepare(
@@ -51,7 +51,7 @@ export async function listEvents(env: Env, merchant: Merchant): Promise<Response
   return json({
     data: results.map((event) => ({
       ...event,
-      object: "event",
+      object: 'event',
       data: JSON.parse(event.data),
       deliveries: JSON.parse(event.deliveries),
     })),
@@ -60,11 +60,11 @@ export async function listEvents(env: Env, merchant: Merchant): Promise<Response
 
 /** `POST /v1/events/:id/resend`: delivers the event again to every endpoint, from attempt one. */
 export async function resendEvent(env: Env, merchant: Merchant, id: string): Promise<Response> {
-  const event = await env.FLOW_DB.prepare("SELECT 1 FROM events WHERE id = ? AND merchant_id = ?")
+  const event = await env.FLOW_DB.prepare('SELECT 1 FROM events WHERE id = ? AND merchant_id = ?')
     .bind(id, merchant.id)
     .first();
   if (!event) {
-    throw new HttpError(404, "NOT_FOUND");
+    throw new HttpError(404, 'NOT_FOUND');
   }
   await env.FLOW_DB.prepare(
     `INSERT INTO webhook_deliveries (event_id, endpoint_id, next_attempt_at)
@@ -74,7 +74,7 @@ export async function resendEvent(env: Env, merchant: Merchant, id: string): Pro
   )
     .bind(id, now(), merchant.id)
     .run();
-  return json({ id, object: "event", resent: true });
+  return json({ id, object: 'event', resent: true });
 }
 
 /** `POST /v1/webhook_endpoints`: the signing secret is shown only in this response. */
@@ -85,38 +85,38 @@ export async function createEndpoint(
   merchant: Merchant,
 ): Promise<Response> {
   const { url } = await readJson<{ url?: string }>(request);
-  if (typeof url !== "string" || !URL.canParse(url) || new URL(url).protocol !== "https:") {
-    throw new HttpError(400, "INVALID_URL");
+  if (typeof url !== 'string' || !URL.canParse(url) || new URL(url).protocol !== 'https:') {
+    throw new HttpError(400, 'INVALID_URL');
   }
-  const id = newId("we");
+  const id = newId('we');
   const secret = `whsec_${bytesToHex(crypto.getRandomValues(new Uint8Array(24))).slice(2)}`;
   await env.FLOW_DB.prepare(
-    "INSERT INTO webhook_endpoints (id, merchant_id, url, secret, created_at) VALUES (?, ?, ?, ?, ?)",
+    'INSERT INTO webhook_endpoints (id, merchant_id, url, secret, created_at) VALUES (?, ?, ?, ?, ?)',
   )
     .bind(id, merchant.id, url, await encrypt(config, secret), now())
     .run();
-  return json({ id, object: "webhook_endpoint", url, secret }, 201);
+  return json({ id, object: 'webhook_endpoint', url, secret }, 201);
 }
 
 /** `GET /v1/webhook_endpoints` */
 export async function listEndpoints(env: Env, merchant: Merchant): Promise<Response> {
   const { results } = await env.FLOW_DB.prepare(
-    "SELECT id, url, created_at FROM webhook_endpoints WHERE merchant_id = ? ORDER BY created_at",
+    'SELECT id, url, created_at FROM webhook_endpoints WHERE merchant_id = ? ORDER BY created_at',
   )
     .bind(merchant.id)
     .all();
-  return json({ data: results.map((endpoint) => ({ ...endpoint, object: "webhook_endpoint" })) });
+  return json({ data: results.map((endpoint) => ({ ...endpoint, object: 'webhook_endpoint' })) });
 }
 
 /** `DELETE /v1/webhook_endpoints/:id` */
 export async function deleteEndpoint(env: Env, merchant: Merchant, id: string): Promise<Response> {
   const result = await env.FLOW_DB.prepare(
-    "DELETE FROM webhook_endpoints WHERE id = ? AND merchant_id = ?",
+    'DELETE FROM webhook_endpoints WHERE id = ? AND merchant_id = ?',
   )
     .bind(id, merchant.id)
     .run();
   if (result.meta.changes !== 1) {
-    throw new HttpError(404, "NOT_FOUND");
+    throw new HttpError(404, 'NOT_FOUND');
   }
   return json({ id, deleted: true });
 }
@@ -150,20 +150,20 @@ export async function deliverWebhooks(env: Env, config: Config, budget: Budget):
     affordable.map(async (delivery) => {
       const body = JSON.stringify({
         id: delivery.event_id,
-        object: "event",
+        object: 'event',
         type: delivery.type,
         created_at: delivery.created_at,
         data: JSON.parse(delivery.data),
       });
       const timestamp = now();
       const status = await fetch(delivery.url, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
-          "GatoPago-Signature": `t=${timestamp},v1=${await hmac(await decrypt(config, delivery.secret), `${timestamp}.${body}`)}`,
+          'Content-Type': 'application/json',
+          'GatoPago-Signature': `t=${timestamp},v1=${await hmac(await decrypt(config, delivery.secret), `${timestamp}.${body}`)}`,
         },
         body,
-        redirect: "manual",
+        redirect: 'manual',
         signal: AbortSignal.timeout(10_000),
       }).then(
         (response) => (void response.body?.cancel(), response.status),
@@ -188,14 +188,14 @@ export async function deliverWebhooks(env: Env, config: Config, budget: Budget):
 
 async function hmac(secret: string, message: string): Promise<string> {
   const key = await crypto.subtle.importKey(
-    "raw",
+    'raw',
     new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
+    { name: 'HMAC', hash: 'SHA-256' },
     false,
-    ["sign"],
+    ['sign'],
   );
   return bytesToHex(
-    new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message))),
+    new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message))),
   ).slice(2);
 }
 
@@ -205,7 +205,7 @@ const unbase64 = (text: string) => Uint8Array.from(atob(text), (c) => c.charCode
 async function encrypt(config: Config, secret: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const sealed = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    { name: 'AES-GCM', iv },
     config.webhookKey,
     new TextEncoder().encode(secret),
   );
@@ -213,10 +213,10 @@ async function encrypt(config: Config, secret: string): Promise<string> {
 }
 
 async function decrypt(config: Config, sealed: string): Promise<string> {
-  const [iv, data] = sealed.split(".");
+  const [iv, data] = sealed.split('.');
   return new TextDecoder().decode(
     await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: unbase64(iv) },
+      { name: 'AES-GCM', iv: unbase64(iv) },
       config.webhookKey,
       unbase64(data),
     ),

@@ -35,8 +35,9 @@ pays the platform fee (`PLATFORM_FEE_BPS`) and, when crossing networks, Circle's
 | `GET /v1/health` | Public |
 
 A key is `Authorization: Bearer sk_test_…`; a session is the token Wallet Core issues to the
-GatoPago app, verified with Wallet Core's public key (`SESSION_PUBLIC_JWK`). A GatoPago user is a
-merchant from their first request.
+GatoPago app or to Business, checked with Wallet Core itself (`WALLET_CORE` service binding,
+`GET /app/v1/auth/session`), so a session it ended (an owner of the account was removed) is refused
+here too. A GatoPago user is a merchant from their first request.
 
 ## Setup
 
@@ -62,7 +63,7 @@ any of them is missing or invalid.
 | `HOME_NETWORK` | var | Where merchants are paid; payments from other networks cross with CCTP | The web's `GATOPAGO_HOME_NETWORK` |
 | `PLATFORM_FEE_BPS` | var | GatoPago's fee, in basis points, paid by the payer | Business policy; `0` on testnet |
 | `SUBREQUESTS_PER_RUN` | var | External requests one cron run may make: payments are read first, then crossings and webhooks; the rest waits a minute | Workers Free allows 50 per invocation: `45`. Workers Paid: up to `1000` |
-| `SESSION_PUBLIC_JWK` | var | Verifies the sessions Wallet Core issues to the app | Wallet Core's `SESSION_PRIVATE_JWK` without its `d` field |
+| `WALLET_CORE` | service binding | Wallet Core, which answers whether a session still counts | `services` in `wrangler.jsonc`: the Worker `gatopago-wallet-core`, deployed in the same account |
 | `FLOW_RPC_URLS` | secret | `{"<network>": "<url>"}`: RPC that reads the routers' events and payments | Public RPCs. Flow reads 100 blocks per `eth_getLogs`, more than Alchemy's free tier allows (10) |
 | `PAYMENT_SIGNER_PRIVATE_KEY` | secret | Signs each payment authorization the routers check | A dedicated key (`cast wallet new`); its address must be every router's `signer` (`setSigner`, called by the routers' owner) |
 | `WEBHOOK_SECRET_KEY` | secret | Encrypts merchants' webhook signing secrets at rest | `openssl rand -base64 32`; changing it makes the stored secrets unreadable |

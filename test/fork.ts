@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn } from 'node:child_process';
 import {
   createTestClient,
   erc20Abi,
@@ -8,10 +8,10 @@ import {
   publicActions,
   walletActions,
   type Address,
-} from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { walletNetworks } from "@gatopago/shared/networks";
-import { FORKS, PAYER_KEY, ROUTER_OWNER, SIGNER_KEY, forkUrl } from "./forks";
+} from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { walletNetworks } from '@gatopago/shared/networks';
+import { FORKS, PAYER_KEY, ROUTER_OWNER, SIGNER_KEY, forkUrl } from './forks';
 
 /**
  * Vitest global setup: each fork's router accepts the test signer's authorizations, and the payer
@@ -19,8 +19,8 @@ import { FORKS, PAYER_KEY, ROUTER_OWNER, SIGNER_KEY, forkUrl } from "./forks";
  */
 export default async function setup() {
   const processes = FORKS.map((fork) =>
-    spawn("anvil", ["--fork-url", fork.url, "--port", String(fork.port), "--silent"], {
-      stdio: "ignore",
+    spawn('anvil', ['--fork-url', fork.url, '--port', String(fork.port), '--silent'], {
+      stdio: 'ignore',
     }),
   );
   await Promise.all(
@@ -28,7 +28,7 @@ export default async function setup() {
       const network = walletNetworks[fork.id];
       const client = createTestClient({
         chain: network.chain,
-        mode: "anvil",
+        mode: 'anvil',
         transport: http(forkUrl(fork.port)),
       })
         .extend(publicActions)
@@ -46,25 +46,25 @@ export default async function setup() {
       }
       const send = async (from: Address, request: object) => {
         await client.impersonateAccount({ address: from });
-        await client.setBalance({ address: from, value: parseEther("100") });
+        await client.setBalance({ address: from, value: parseEther('100') });
         const hash = await client.writeContract({ account: from, ...request } as never);
         await client.waitForTransactionReceipt({ hash });
       };
       await send(ROUTER_OWNER, {
         address: network.paymentRouter,
-        abi: parseAbi(["function setSigner(address)"]),
-        functionName: "setSigner",
+        abi: parseAbi(['function setSigner(address)']),
+        functionName: 'setSigner',
         args: [privateKeyToAccount(SIGNER_KEY).address],
       });
       await send(fork.usdcHolder, {
         address: network.usdc,
         abi: erc20Abi,
-        functionName: "transfer",
+        functionName: 'transfer',
         args: [privateKeyToAccount(PAYER_KEY).address, 20_000_000n],
       });
       await client.setBalance({
         address: privateKeyToAccount(PAYER_KEY).address,
-        value: parseEther("10"),
+        value: parseEther('10'),
       });
     }),
   );

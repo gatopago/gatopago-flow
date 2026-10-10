@@ -1,10 +1,10 @@
-import { getAddress, parseEventLogs, type Hex, type Log } from "viem";
-import { crosschainStatus } from "@gatopago/shared/crosschain";
-import { paymentRouterAbi } from "@gatopago/shared/payments";
-import type { Budget } from "./budget";
-import type { Config, Network } from "./config";
-import { markSucceeded, transition, type IntentRow } from "./intents";
-import { recordEvent } from "./webhooks";
+import { getAddress, parseEventLogs, type Hex, type Log } from 'viem';
+import { crosschainStatus } from '@gatopago/shared/crosschain';
+import { paymentRouterAbi } from '@gatopago/shared/payments';
+import type { Budget } from './budget';
+import type { Config, Network } from './config';
+import { markSucceeded, transition, type IntentRow } from './intents';
+import { recordEvent } from './webhooks';
 
 /** Blocks read per `eth_getLogs` (public RPCs cap the range, Monad's at 100). */
 const RANGE = 100n;
@@ -14,7 +14,7 @@ const RANGE = 100n;
  * intent; one that crosses networks leaves it `processing` until Circle mints to the merchant.
  */
 export async function applyPayments(env: Env, config: Config, network: Network, logs: Log[]) {
-  const events = parseEventLogs({ abi: paymentRouterAbi, eventName: "PaymentSent", logs });
+  const events = parseEventLogs({ abi: paymentRouterAbi, eventName: 'PaymentSent', logs });
   for (const { args, transactionHash } of events) {
     const intent = await env.FLOW_DB.prepare(
       `SELECT payment_intents.*, merchants.address AS merchant_address FROM payment_intents
@@ -32,10 +32,10 @@ export async function applyPayments(env: Env, config: Config, network: Network, 
       continue;
     }
     const payment = { network: network.id, transactionHash, payer: args.payer };
-    if (intent.status === "succeeded" || intent.status === "processing") {
+    if (intent.status === 'succeeded' || intent.status === 'processing') {
       if (intent.transaction_hash !== transactionHash) {
         await env.FLOW_DB.batch(
-          recordEvent(env, intent.merchant_id, "payment_intent.duplicate_payment", {
+          recordEvent(env, intent.merchant_id, 'payment_intent.duplicate_payment', {
             payment_intent: intent.id,
             ...payment,
           }),
@@ -49,12 +49,12 @@ export async function applyPayments(env: Env, config: Config, network: Network, 
         config,
         intent,
         {
-          status: "processing",
+          status: 'processing',
           network: network.id,
           transaction_hash: transactionHash,
           payer: args.payer,
         },
-        "payment_intent.processing",
+        'payment_intent.processing',
       );
     }
   }
@@ -67,15 +67,15 @@ export async function scanNetworks(env: Env, config: Config, budget: Budget): Pr
       return;
     }
     const latest = await network.client.getBlockNumber();
-    const cursor = await env.FLOW_DB.prepare("SELECT block FROM chain_cursors WHERE network = ?")
+    const cursor = await env.FLOW_DB.prepare('SELECT block FROM chain_cursors WHERE network = ?')
       .bind(network.id)
-      .first<number>("block");
+      .first<number>('block');
     let from = cursor === null ? latest : BigInt(cursor) + 1n;
     for (let rounds = 0; from <= latest && rounds < 20 && budget.take(); rounds++) {
       const to = from + RANGE - 1n < latest ? from + RANGE - 1n : latest;
       const logs = await network.client.getLogs({
         address: network.paymentRouter,
-        event: paymentRouterAbi.find((item) => item.type === "event")!,
+        event: paymentRouterAbi.find((item) => item.type === 'event')!,
         fromBlock: from,
         toBlock: to,
       });
@@ -113,13 +113,13 @@ export async function completeCrossings(env: Env, config: Config, budget: Budget
       intent.transaction_hash as Hex,
       AbortSignal.timeout(10_000),
     ).catch(() => null);
-    if (status?.stage !== "delivered" || !status.forwardTxHash) {
+    if (status?.stage !== 'delivered' || !status.forwardTxHash) {
       continue;
     }
     const mint = await config.home.client
       .getTransactionReceipt({ hash: status.forwardTxHash })
       .catch(() => null);
-    if (mint?.status === "success") {
+    if (mint?.status === 'success') {
       await markSucceeded(env, config, intent.id, {
         network: intent.network!,
         transactionHash: intent.transaction_hash,
