@@ -9,7 +9,9 @@ one tap and no gas). Served at `api.gatopago.com/v1` and `/checkout/v1`.
 1. The merchant creates an intent (`POST /v1/payment_intents { amount: "18.00" }`) and sends the
    payer its `checkout_url` (`gatopago.com/pay/pi_…`).
 2. The payer's wallet asks for an authorization (`POST /checkout/v1/:id/authorize { payer, network }`):
-   Flow signs (EIP-712) the exact payment for `GatoPagoPaymentRouter` on that network.
+   Flow signs (EIP-712) the exact payment for `GatoPagoPaymentRouter` on that network, valid for
+   5 minutes. One network at a time: each router only knows its own payments, so while that
+   authorization can still pay, another network is refused (`AUTHORIZED_ON_OTHER_NETWORK`).
 3. The wallet approves USDC and calls `pay` (a GatoPago account does both in one operation). On the
    home network the router pays the merchant directly; from another network it burns with Circle
    CCTP and Circle's Forwarding Service mints to the merchant on the home network.

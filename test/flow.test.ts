@@ -276,6 +276,30 @@ describe('payment intents', () => {
   });
 });
 
+describe('checkout', () => {
+  const authorize = (id: string, network: string) =>
+    api(`/checkout/v1/${id}/authorize`, { body: { payer: payer.address, network } });
+
+  it('authorizes one network at a time, so an intent is never paid on two', async () => {
+    const { key } = await merchant();
+    const { id } = await intent(key);
+    // What the payer adds: the 50 bps platform fee of these tests.
+    expect(await (await api(`/checkout/v1/${id}`)).json()).toMatchObject({ fee: '0.025' });
+    expect((await authorize(id, 'eip155:421614')).status).toBe(200);
+    // Another tab or device on another network: refused while the first can still pay.
+    const other = await authorize(id, 'eip155:43113');
+    expect(other.status).toBe(409);
+    expect(await other.json()).toEqual({ error_code: 'AUTHORIZED_ON_OTHER_NETWORK' });
+    // The same network again is fine: its router pays an intent once.
+    expect((await authorize(id, 'eip155:421614')).status).toBe(200);
+    // Once that authorization can no longer pay, another network can be chosen.
+    await env.FLOW_DB.prepare('UPDATE payment_intents SET authorized_until = 1 WHERE id = ?')
+      .bind(id)
+      .run();
+    expect((await authorize(id, 'eip155:43113')).status).toBe(200);
+  });
+});
+
 describe('webhooks', () => {
   it('delivers signed events, reports each delivery and delivers again on request', async () => {
     const { key } = await merchant();
