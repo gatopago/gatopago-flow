@@ -31,7 +31,10 @@ export async function readCheckout(env: Env, config: Config, id: string): Promis
  * crosses with CCTP, whose fee ceiling the payer covers.
  */
 export async function authorize(request: Request, env: Env, config: Config, id: string) {
-  await rateLimit(env, `authorize:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`);
+  await rateLimit(
+    env.RATE_LIMITER,
+    `authorize:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`,
+  );
   const body = await readJson<{ payer?: unknown; network?: unknown }>(request);
   const network = config.networks.get(String(body.network));
   if (!network || typeof body.payer !== 'string' || !isAddress(body.payer)) {
@@ -78,7 +81,10 @@ export async function authorize(request: Request, env: Env, config: Config, id: 
  * payer has the transaction, instead of waiting for the next scan.
  */
 export async function confirm(request: Request, env: Env, config: Config, id: string) {
-  await rateLimit(env, `confirm:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`);
+  await rateLimit(
+    env.RATE_LIMITER,
+    `confirm:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`,
+  );
   const body = await readJson<{ network?: unknown; transaction_hash?: unknown }>(request);
   const network = config.networks.get(String(body.network));
   if (!network || typeof body.transaction_hash !== 'string' || !isHash(body.transaction_hash)) {

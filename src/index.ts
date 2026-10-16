@@ -50,7 +50,7 @@ async function route(request: Request, env: Env, settings: Config): Promise<Resp
   // Merchant profile and API keys need the owner's GatoPago session; the rest accepts API keys too.
   const sessionOnly = resource === 'merchant' || resource === 'api_keys';
   const merchant = await authenticate(request, env, { sessionOnly });
-  await rateLimit(env, `api:${merchant.id}`);
+  await rateLimit(env.RATE_LIMITER, `api:${merchant.id}`);
   switch (`${method} ${resource}${id ? '/:id' : ''}${action ? `/${action}` : ''}`) {
     case 'GET merchant':
       return readMerchant(merchant);
@@ -132,7 +132,8 @@ export default {
     const settings = await config(env);
     const budget = new Budget(settings.subrequestsPerRun);
     const results = [
-      ...(await Promise.allSettled([scanNetworks(env, settings, budget)])),
+      // Half at most, so crossings and webhooks get their turn while the scan catches up.
+      ...(await Promise.allSettled([scanNetworks(env, settings, budget.share(2))])),
       ...(await Promise.allSettled([
         completeCrossings(env, settings, budget),
         deliverWebhooks(env, settings, budget),

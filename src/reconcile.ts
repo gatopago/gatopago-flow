@@ -60,34 +60,47 @@ export async function applyPayments(env: Env, config: Config, network: Network, 
   }
 }
 
-/** Reads each network's router events since the last block read, up to the latest one. */
+/**
+ * Reads each network's router events since the last block read, up to the latest one. Each network
+ * reads with an even part of the requests, and one whose RPC fails waits for the next run without
+ * holding back the others.
+ */
 export async function scanNetworks(env: Env, config: Config, budget: Budget): Promise<void> {
-  for (const network of config.networks.values()) {
-    if (!budget.take()) {
-      return;
-    }
-    const latest = await network.client.getBlockNumber();
-    const cursor = await env.FLOW_DB.prepare('SELECT block FROM chain_cursors WHERE network = ?')
-      .bind(network.id)
-      .first<number>('block');
-    let from = cursor === null ? latest : BigInt(cursor) + 1n;
-    for (let rounds = 0; from <= latest && rounds < 20 && budget.take(); rounds++) {
-      const to = from + RANGE - 1n < latest ? from + RANGE - 1n : latest;
-      const logs = await network.client.getLogs({
-        address: network.paymentRouter,
-        event: paymentRouterAbi.find((item) => item.type === 'event')!,
-        fromBlock: from,
-        toBlock: to,
-      });
-      await applyPayments(env, config, network, logs);
-      await env.FLOW_DB.prepare(
-        `INSERT INTO chain_cursors (network, block) VALUES (?, ?)
-         ON CONFLICT (network) DO UPDATE SET block = excluded.block`,
-      )
-        .bind(network.id, Number(to))
-        .run();
-      from = to + 1n;
-    }
+  const networks = [...config.networks.values()];
+  for (const [i, network] of networks.entries()) {
+    await scanNetwork(env, config, network, budget.share(networks.length - i)).catch(
+      (error: unknown) => {
+        console.error(error);
+      },
+    );
+  }
+}
+
+async function scanNetwork(env: Env, config: Config, network: Network, budget: Budget) {
+  if (!budget.take()) {
+    return;
+  }
+  const latest = await network.client.getBlockNumber();
+  const cursor = await env.FLOW_DB.prepare('SELECT block FROM chain_cursors WHERE network = ?')
+    .bind(network.id)
+    .first<number>('block');
+  let from = cursor === null ? latest : BigInt(cursor) + 1n;
+  for (let rounds = 0; from <= latest && rounds < 20 && budget.take(); rounds++) {
+    const to = from + RANGE - 1n < latest ? from + RANGE - 1n : latest;
+    const logs = await network.client.getLogs({
+      address: network.paymentRouter,
+      event: paymentRouterAbi.find((item) => item.type === 'event')!,
+      fromBlock: from,
+      toBlock: to,
+    });
+    await applyPayments(env, config, network, logs);
+    await env.FLOW_DB.prepare(
+      `INSERT INTO chain_cursors (network, block) VALUES (?, ?)
+       ON CONFLICT (network) DO UPDATE SET block = excluded.block`,
+    )
+      .bind(network.id, Number(to))
+      .run();
+    from = to + 1n;
   }
 }
 

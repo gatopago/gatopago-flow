@@ -14,7 +14,10 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { walletNetworks } from '@gatopago/shared/networks';
 import { paymentRouterAbi, type Payment } from '@gatopago/shared/payments';
+import { Budget } from '../src/budget';
+import { config } from '../src/config';
 import worker from '../src/index';
+import { scanNetworks } from '../src/reconcile';
 import { FORKS, PAYER_KEY, forkUrl } from './forks';
 
 const payer = privateKeyToAccount(PAYER_KEY);
@@ -297,6 +300,47 @@ describe('webhooks', () => {
     await runScheduled();
     expect(webhooks.map((webhook) => JSON.parse(webhook.body).id)).toEqual([event.id]);
     expect((await api('/v1/events/evt_unknown/resend', { token: key, body: {} })).status).toBe(404);
+  });
+});
+
+describe('scanning the networks', () => {
+  const cursor = (id: string) =>
+    env.FLOW_DB.prepare('SELECT block FROM chain_cursors WHERE network = ?')
+      .bind(id)
+      .first<number>('block');
+  const behind = async (id: string, on: typeof arbitrum) => {
+    const block = Number(await on.public.getBlockNumber()) - 1_000;
+    await env.FLOW_DB.prepare(
+      `INSERT INTO chain_cursors (network, block) VALUES (?, ?)
+       ON CONFLICT (network) DO UPDATE SET block = excluded.block`,
+    )
+      .bind(id, block)
+      .run();
+    return block;
+  };
+
+  it('gives each network its turn, and one that fails does not stop the others', async () => {
+    const [arbitrumFrom, fujiFrom] = [
+      await behind('eip155:421614', arbitrum),
+      await behind('eip155:43113', fuji),
+    ];
+    // Both far behind, with 4 requests: each reads its latest block and one range.
+    await scanNetworks(env, await config(env), new Budget(4));
+    expect(await cursor('eip155:421614')).toBe(arbitrumFrom + 100);
+    expect(await cursor('eip155:43113')).toBe(fujiFrom + 100);
+    // Arbitrum's RPC fails: Fuji goes on.
+    const down = await config({
+      ...env,
+      FLOW_RPC_URLS: JSON.stringify({
+        'eip155:421614': 'http://127.0.0.1:1',
+        'eip155:43113': forkUrl(FORKS[1].port),
+      }),
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await scanNetworks(env, down, new Budget(4));
+    expect(await cursor('eip155:421614')).toBe(arbitrumFrom + 100);
+    expect(await cursor('eip155:43113')).toBe(fujiFrom + 300);
+    await env.FLOW_DB.prepare('DELETE FROM chain_cursors').run();
   });
 });
 
