@@ -3,6 +3,7 @@ import { crosschainStatus } from '@gatopago/shared/crosschain';
 import { paymentRouterAbi } from '@gatopago/shared/payments';
 import type { Budget } from './budget';
 import type { Config, Network } from './config';
+import { currency } from './currencies';
 import { markSucceeded, transition, type IntentRow } from './intents';
 import { recordEvent } from './webhooks';
 
@@ -10,8 +11,9 @@ import { recordEvent } from './webhooks';
 const RANGE = 100n;
 
 /**
- * Applies the router's `PaymentSent` events in `logs`. A payment on the home network settles the
- * intent; one that crosses networks leaves it `processing` until Circle mints to the merchant.
+ * Applies the router's `PaymentSent` events in `logs`. A payment received where it was made (USDC on
+ * the home network, another coin on its own) settles the intent; one that crosses networks leaves it
+ * `processing` until Circle mints to the merchant.
  */
 export async function applyPayments(env: Env, config: Config, network: Network, logs: Log[]) {
   const events = parseEventLogs({ abi: paymentRouterAbi, eventName: 'PaymentSent', logs });
@@ -22,12 +24,16 @@ export async function applyPayments(env: Env, config: Config, network: Network, 
     )
       .bind(args.intentId)
       .first<IntentRow & { merchant_address: string }>();
-    // Flow only authorizes its own intents, merchant and amount: anything else is not ours.
+    // Flow only authorizes its own intents, merchant, coin and amount: anything else is not ours.
+    const token = intent && currency(config, intent.currency)?.tokens.get(network.id);
     if (
       !intent ||
+      !token ||
       getAddress(intent.merchant_address) !== args.merchant ||
+      getAddress(token) !== args.token ||
       BigInt(intent.amount) !== args.amount ||
-      args.destinationDomain !== config.home.cctp.domain
+      args.destinationDomain !==
+        (intent.currency === 'USDC' ? config.home.cctp.domain : network.cctp.domain)
     ) {
       continue;
     }
@@ -41,7 +47,7 @@ export async function applyPayments(env: Env, config: Config, network: Network, 
           }),
         );
       }
-    } else if (network.id === config.home.id) {
+    } else if (args.destinationDomain === network.cctp.domain) {
       await markSucceeded(env, config, intent.id, payment);
     } else {
       await transition(

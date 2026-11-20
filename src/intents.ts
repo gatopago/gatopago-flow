@@ -1,6 +1,7 @@
 import { formatUnits, keccak256, parseUnits, toHex } from 'viem';
 import type { Merchant } from './auth';
 import type { Config } from './config';
+import { currency, decimalsOf } from './currencies';
 import { HttpError, json, newId, now, readJson } from './http';
 import { recordEvent } from './webhooks';
 
@@ -8,7 +9,9 @@ export interface IntentRow {
   id: string;
   onchain_id: string;
   merchant_id: string;
+  /** Atomic units of `currency` the merchant receives. */
   amount: string;
+  currency: string;
   description: string | null;
   metadata: string | null;
   status: 'requires_payment' | 'processing' | 'succeeded' | 'canceled' | 'expired';
@@ -26,8 +29,8 @@ export function presentIntent(row: IntentRow, config: Config) {
   return {
     id: row.id,
     object: 'payment_intent',
-    amount: formatUnits(BigInt(row.amount), 6),
-    currency: 'USDC',
+    amount: formatUnits(BigInt(row.amount), decimalsOf(row.currency)),
+    currency: row.currency,
     status: row.status,
     description: row.description,
     metadata: row.metadata ? JSON.parse(row.metadata) : {},
@@ -80,8 +83,9 @@ export async function transition(
 }
 
 /**
- * `POST /v1/payment_intents` `{ amount: "18.00", description?, metadata?, expires_in? }`. A repeated
- * `Idempotency-Key` returns the intent the first request created.
+ * `POST /v1/payment_intents` `{ amount: "18.00", currency?: "USDC" | "AUSD", description?, metadata?,
+ * expires_in? }`. USDC by default. A repeated `Idempotency-Key` returns the intent the first request
+ * created.
  */
 export async function createIntent(
   request: Request,
@@ -91,14 +95,22 @@ export async function createIntent(
 ): Promise<Response> {
   const body = await readJson<{
     amount?: unknown;
+    currency?: unknown;
     description?: unknown;
     metadata?: unknown;
     expires_in?: unknown;
   }>(request);
-  if (typeof body.amount !== 'string' || !/^\d{1,7}(\.\d{1,6})?$/.test(body.amount)) {
+  const coin = currency(config, typeof body.currency === 'string' ? body.currency : 'USDC');
+  if (!coin || (body.currency !== undefined && typeof body.currency !== 'string')) {
+    throw new HttpError(400, 'INVALID_CURRENCY');
+  }
+  if (
+    typeof body.amount !== 'string' ||
+    !new RegExp(`^\\d{1,7}(\\.\\d{1,${coin.decimals}})?$`).test(body.amount)
+  ) {
     throw new HttpError(400, 'INVALID_AMOUNT');
   }
-  const amount = parseUnits(body.amount, 6);
+  const amount = parseUnits(body.amount, coin.decimals);
   if (amount <= 0n) {
     throw new HttpError(400, 'INVALID_AMOUNT');
   }
@@ -137,6 +149,7 @@ export async function createIntent(
     onchain_id: '',
     merchant_id: merchant.id,
     amount: amount.toString(),
+    currency: coin.symbol,
     description: (body.description as string | undefined) ?? null,
     metadata: JSON.stringify(metadata),
     status: 'requires_payment',
@@ -150,15 +163,16 @@ export async function createIntent(
   row.onchain_id = keccak256(toHex(row.id));
   const [insert] = await env.FLOW_DB.batch([
     env.FLOW_DB.prepare(
-      `INSERT INTO payment_intents (id, onchain_id, merchant_id, amount, description, metadata, status,
-         expires_at, created_at, idempotency_key)
-       VALUES (?, ?, ?, ?, ?, ?, 'requires_payment', ?, ?, ?)
+      `INSERT INTO payment_intents (id, onchain_id, merchant_id, amount, currency, description,
+         metadata, status, expires_at, created_at, idempotency_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'requires_payment', ?, ?, ?)
        ON CONFLICT (merchant_id, idempotency_key) DO NOTHING`,
     ).bind(
       row.id,
       row.onchain_id,
       merchant.id,
       row.amount,
+      row.currency,
       row.description,
       row.metadata,
       row.expires_at,
@@ -178,6 +192,7 @@ export async function createIntent(
     .first<IntentRow>())!;
   if (
     existing.amount !== row.amount ||
+    existing.currency !== row.currency ||
     existing.description !== row.description ||
     existing.metadata !== row.metadata ||
     existing.expires_at - existing.created_at !== expiresIn
@@ -219,11 +234,14 @@ export async function simulatePayment(env: Env, config: Config, merchant: Mercha
   if (!config.testnet) {
     throw new HttpError(404, 'NOT_FOUND');
   }
-  if ((await intentRow(env, id, merchant.id)).status !== 'requires_payment') {
+  const intent = await intentRow(env, id, merchant.id);
+  if (intent.status !== 'requires_payment') {
     throw new HttpError(409, 'INTENT_NOT_PAYABLE');
   }
+  // Received where a real payment would be: the home network for USDC, the coin's own otherwise.
+  const coin = currency(config, intent.currency);
   const row = await markSucceeded(env, config, id, {
-    network: config.home.id,
+    network: intent.currency === 'USDC' || !coin ? config.home.id : [...coin.tokens.keys()][0],
     transactionHash: null,
     payer: null,
   });

@@ -5,19 +5,28 @@ import {
   bytesToHex,
   createPublicClient,
   createWalletClient,
+  encodeAbiParameters,
+  encodeEventTopics,
+  getAddress,
   erc20Abi,
   http,
+  keccak256,
   parseUnits,
+  toHex,
   type Address,
   type Hex,
+  type Log,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { walletNetworks } from '@gatopago/shared/networks';
 import { paymentRouterAbi, type Payment } from '@gatopago/shared/payments';
+import type { Merchant } from '../src/auth';
 import { Budget } from '../src/budget';
+import { authorize, readCheckout } from '../src/checkout';
 import { config } from '../src/config';
 import worker from '../src/index';
-import { scanNetworks } from '../src/reconcile';
+import { createIntent } from '../src/intents';
+import { applyPayments, scanNetworks } from '../src/reconcile';
 import { FORKS, PAYER_KEY, forkUrl } from './forks';
 
 const payer = privateKeyToAccount(PAYER_KEY);
@@ -297,6 +306,123 @@ describe('checkout', () => {
       .bind(id)
       .run();
     expect((await authorize(id, 'eip155:43113')).status).toBe(200);
+  });
+});
+
+describe('intents in another coin', () => {
+  const monad = walletNetworks['eip155:10143'];
+  const [ausd] = monad.tokens;
+
+  it('prices an intent in AUSD, paid and received on Monad, never crossing', async () => {
+    // Flow with Monad among its networks: nothing here reads it.
+    const withMonad = await config({
+      ...env,
+      WALLET_NETWORKS: [...FORKS.map((fork) => fork.id), 'eip155:10143'].join(','),
+      FLOW_RPC_URLS: JSON.stringify({
+        ...Object.fromEntries(FORKS.map((fork) => [fork.id, forkUrl(fork.port)])),
+        'eip155:10143': 'http://127.0.0.1:1',
+      }),
+    });
+    const { address, key } = await merchant();
+    const seller = (await env.FLOW_DB.prepare(
+      'SELECT id, address, name FROM merchants WHERE address = ?',
+    )
+      .bind(address)
+      .first<Merchant>())!;
+    const post = (path: string, body: unknown) =>
+      new Request(`https://api.gatopago.com${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    // Only coins of Flow's networks, never a test token.
+    for (const [settings, currency] of [
+      [undefined, 'AUSD'],
+      [withMonad, 'CTK'],
+    ] as const) {
+      const refused = settings
+        ? await createIntent(
+            post('/v1/payment_intents', { amount: '5', currency }),
+            env,
+            settings,
+            seller,
+          ).catch((error: { code: string }) => error.code)
+        : (
+            await (
+              await api('/v1/payment_intents', { token: key, body: { amount: '5', currency } })
+            ).json<{ error_code: string }>()
+          ).error_code;
+      expect(refused).toBe('INVALID_CURRENCY');
+    }
+    const created = await (
+      await createIntent(
+        post('/v1/payment_intents', { amount: '5.00', currency: 'AUSD' }),
+        env,
+        withMonad,
+        seller,
+      )
+    ).json<{ id: string; amount: string; currency: string }>();
+    expect(created).toMatchObject({ amount: '5', currency: 'AUSD' });
+    // Paid on its own network only, with the 50 bps fee of these tests in AUSD.
+    expect(await (await readCheckout(env, withMonad, created.id)).json()).toMatchObject({
+      networks: ['eip155:10143'],
+      home_network: null,
+      fee: '0.025',
+    });
+    const payer = '0x00000000000000000000000000000000000000b0';
+    const elsewhere = await authorize(
+      post(`/checkout/v1/${created.id}/authorize`, { payer, network: 'eip155:421614' }),
+      env,
+      withMonad,
+      created.id,
+    ).catch((error: { code: string }) => error.code);
+    expect(elsewhere).toBe('CURRENCY_NOT_ON_NETWORK');
+    const authorization = await (
+      await authorize(
+        post(`/checkout/v1/${created.id}/authorize`, { payer, network: 'eip155:10143' }),
+        env,
+        withMonad,
+        created.id,
+      )
+    ).json<{ token: string; total: string; payment: { destinationDomain: number } }>();
+    expect(authorization).toMatchObject({
+      token: ausd.address,
+      total: '5.025',
+      payment: { destinationDomain: monad.cctp.domain },
+    });
+
+    // The router's event settles it on Monad; the same payment in another coin is not ours.
+    const sent = (token: Address, hash: string) =>
+      ({
+        address: monad.paymentRouter,
+        topics: encodeEventTopics({
+          abi: paymentRouterAbi,
+          eventName: 'PaymentSent',
+          args: { intentId: keccak256(toHex(created.id)), payer, merchant: address },
+        }),
+        data: encodeAbiParameters(
+          [{ type: 'address' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'uint32' }],
+          [token, 5_000_000n, 25_000n, monad.cctp.domain],
+        ),
+        transactionHash: `0x${hash.repeat(64)}`,
+        blockNumber: 1n,
+        logIndex: 0,
+      }) as unknown as Log;
+    const network = withMonad.networks.get('eip155:10143')!;
+    await applyPayments(env, withMonad, network, [sent(monad.usdc, 'a')]);
+    const read = () => api(`/v1/payment_intents/${created.id}`, { token: key });
+    expect(await (await read()).json()).toMatchObject({ status: 'requires_payment' });
+    await applyPayments(env, withMonad, network, [sent(ausd.address, 'b')]);
+    expect(await (await read()).json()).toMatchObject({
+      status: 'succeeded',
+      currency: 'AUSD',
+      payment: {
+        network: 'eip155:10143',
+        transaction_hash: `0x${'b'.repeat(64)}`,
+        payer: getAddress(payer),
+      },
+    });
   });
 });
 

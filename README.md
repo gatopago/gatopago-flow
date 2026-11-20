@@ -6,10 +6,12 @@ one tap and no gas). Served at `api.gatopago.com/v1` and `/checkout/v1`.
 
 ## How a payment works
 
-1. The merchant creates an intent (`POST /v1/payment_intents { amount: "18.00" }`) and sends the
-   payer its `checkout_url` (`gatopago.com/pay/pi_…`).
+1. The merchant creates an intent (`POST /v1/payment_intents { amount: "18.00", currency? }`) and
+   sends the payer its `checkout_url` (`gatopago.com/pay/pi_…`). `currency` is `USDC` (the default)
+   or another coin of Flow's networks, such as `AUSD` on Monad; test tokens are refused.
 2. The payer's wallet asks for an authorization (`POST /checkout/v1/:id/authorize { payer, network }`):
-   Flow signs (EIP-712) the exact payment for `GatoPagoPaymentRouter` on that network, valid for
+   Flow signs (EIP-712) the exact payment for `GatoPagoPaymentRouter` on that network, in the
+   intent's coin (`token`), valid for
    5 minutes. One network at a time: each router only knows its own payments, so while that
    authorization can still pay, another network is refused (`AUTHORIZED_ON_OTHER_NETWORK`).
 3. The wallet approves USDC and calls `pay` (a GatoPago account does both in one operation). On the
@@ -22,7 +24,10 @@ one tap and no gas). Served at `api.gatopago.com/v1` and `/checkout/v1`.
    `GatoPago-Signature: t=<unix>,v1=<HMAC-SHA256(secret, "<t>.<body>")>` and retried with backoff.
 
 The merchant receives at their GatoPago account address; GatoPago never holds the funds. The payer
-pays the platform fee (`PLATFORM_FEE_BPS`) and, when crossing networks, Circle's fee ceiling.
+pays the platform fee (`PLATFORM_FEE_BPS`, in the intent's coin) and, when crossing networks,
+Circle's fee ceiling. Only USDC crosses networks: an intent in another coin is paid and received on
+that coin's network (`CURRENCY_NOT_ON_NETWORK` elsewhere), and the checkout read lists where it can
+be paid (`networks`).
 
 ## API
 
