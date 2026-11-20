@@ -1,10 +1,22 @@
-import { createPublicClient, http, isHex, type Hex, type PublicClient } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  isHex,
+  type Chain,
+  type Hex,
+  type HttpTransport,
+  type PublicClient,
+  type WalletClient,
+} from 'viem';
+import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { walletNetwork, type WalletNetwork } from '@gatopago/shared/networks';
 
 export interface Network extends WalletNetwork {
   readonly id: string;
   readonly client: PublicClient;
+  /** Sends the sweeps of the deposits on this network (`SWEEPER_PRIVATE_KEY`, which pays their gas). */
+  readonly sweeper: WalletClient<HttpTransport, Chain, PrivateKeyAccount>;
 }
 
 export interface Config {
@@ -34,9 +46,18 @@ const required = (env: Env, name: keyof Env): string => {
   return value.trim();
 };
 
+const privateKey = (env: Env, name: keyof Env) => {
+  const key = required(env, name);
+  if (!isHex(key) || key.length !== 66) {
+    throw new ConfigError(`INVALID_${String(name)}`);
+  }
+  return privateKeyToAccount(key as Hex);
+};
+
 /** Every setting, validated together; a missing or invalid one stops the request. */
 export async function config(env: Env): Promise<Config> {
   const urls: Record<string, unknown> = JSON.parse(required(env, 'FLOW_RPC_URLS'));
+  const sweeper = privateKey(env, 'SWEEPER_PRIVATE_KEY');
   const networks = new Map<string, Network>();
   for (const raw of required(env, 'WALLET_NETWORKS').split(',')) {
     const id = raw.trim();
@@ -49,6 +70,7 @@ export async function config(env: Env): Promise<Config> {
       ...network,
       id,
       client: createPublicClient({ chain: network.chain, transport: http(url) }),
+      sweeper: createWalletClient({ chain: network.chain, transport: http(url), account: sweeper }),
     });
   }
   const home = networks.get(required(env, 'HOME_NETWORK'));
@@ -63,10 +85,6 @@ export async function config(env: Env): Promise<Config> {
   if (!Number.isSafeInteger(subrequestsPerRun) || subrequestsPerRun < 5) {
     throw new ConfigError('INVALID_SUBREQUESTS_PER_RUN');
   }
-  const signerKey = required(env, 'PAYMENT_SIGNER_PRIVATE_KEY');
-  if (!isHex(signerKey) || signerKey.length !== 66) {
-    throw new ConfigError('INVALID_PAYMENT_SIGNER_PRIVATE_KEY');
-  }
   const webhookKey = Uint8Array.from(atob(required(env, 'WEBHOOK_SECRET_KEY')), (c) =>
     c.charCodeAt(0),
   );
@@ -79,7 +97,7 @@ export async function config(env: Env): Promise<Config> {
     networks,
     home,
     platformFeeBps: fee,
-    signer: privateKeyToAccount(signerKey as Hex),
+    signer: privateKey(env, 'PAYMENT_SIGNER_PRIVATE_KEY'),
     webhookKey: await crypto.subtle.importKey('raw', webhookKey, 'AES-GCM', false, [
       'encrypt',
       'decrypt',

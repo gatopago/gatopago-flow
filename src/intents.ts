@@ -1,4 +1,10 @@
 import { formatUnits, keccak256, parseUnits, toHex } from 'viem';
+import {
+  depositAddress,
+  depositMaxFee,
+  depositSalt,
+  type DepositSettlement,
+} from '@gatopago/shared/deposits';
 import type { Merchant } from './auth';
 import type { Config } from './config';
 import { currency, decimalsOf } from './currencies';
@@ -21,6 +27,10 @@ export interface IntentRow {
   transaction_hash: string | null;
   payer: string | null;
   paid_at: number | null;
+  /** Where anyone can pay it with a plain transfer (`CascabelDeposit`). */
+  deposit_address: string | null;
+  /** The `DepositSettlement` the address commits to, as JSON (`maxFee` as a string). */
+  deposit_settlement: string | null;
 }
 
 const DAY = 86_400;
@@ -35,6 +45,7 @@ export function presentIntent(row: IntentRow, config: Config) {
     description: row.description,
     metadata: row.metadata ? JSON.parse(row.metadata) : {},
     checkout_url: `${config.webOrigin}/pay/${row.id}`,
+    deposit_address: row.deposit_address,
     expires_at: row.expires_at,
     created_at: row.created_at,
     livemode: !config.testnet,
@@ -143,9 +154,24 @@ export async function createIntent(
     throw new HttpError(400, 'INVALID_IDEMPOTENCY_KEY');
   }
 
+  // Its deposit settles where the merchant receives: USDC on the home network (crossing there with
+  // CCTP when paid on another one), any other coin on the network it is paid on.
+  const from = [...config.networks.values()].find((network) => network.id !== config.home.id);
+  const settlement: DepositSettlement = {
+    recipient: merchant.address,
+    destinationDomain: config.home.cctp.domain,
+    maxFee: from
+      ? await depositMaxFee(from, config.home, amount, AbortSignal.timeout(10_000)).catch(() => {
+          throw new HttpError(503, 'CCTP_FEE_UNAVAILABLE');
+        })
+      : 0n,
+    localRecipient: merchant.address,
+  };
+
   const createdAt = now();
+  const id = newId('pi');
   const row: IntentRow = {
-    id: newId('pi'),
+    id,
     onchain_id: '',
     merchant_id: merchant.id,
     amount: amount.toString(),
@@ -159,13 +185,16 @@ export async function createIntent(
     transaction_hash: null,
     payer: null,
     paid_at: null,
+    deposit_address: depositAddress(depositSalt(id), settlement),
+    deposit_settlement: JSON.stringify({ ...settlement, maxFee: settlement.maxFee.toString() }),
   };
   row.onchain_id = keccak256(toHex(row.id));
   const [insert] = await env.FLOW_DB.batch([
     env.FLOW_DB.prepare(
       `INSERT INTO payment_intents (id, onchain_id, merchant_id, amount, currency, description,
-         metadata, status, expires_at, created_at, idempotency_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'requires_payment', ?, ?, ?)
+         metadata, status, expires_at, created_at, idempotency_key, deposit_address,
+         deposit_settlement)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'requires_payment', ?, ?, ?, ?, ?)
        ON CONFLICT (merchant_id, idempotency_key) DO NOTHING`,
     ).bind(
       row.id,
@@ -178,6 +207,8 @@ export async function createIntent(
       row.expires_at,
       createdAt,
       idempotencyKey,
+      row.deposit_address,
+      row.deposit_settlement,
     ),
     ...recordEvent(env, merchant.id, 'payment_intent.created', presentIntent(row, config), true),
   ]);

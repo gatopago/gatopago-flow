@@ -5,5 +5,7 @@
 FLOW_RPC_URLS=""
 # Signs payment authorizations; must be the router's `signer`.
 PAYMENT_SIGNER_PRIVATE_KEY=""
+# Sweeps deposits to their settlement; holds gas on every network in WALLET_NETWORKS.
+SWEEPER_PRIVATE_KEY=""
 # 32 random bytes in base64 (openssl rand -base64 32): encrypts webhook signing secrets.
 WEBHOOK_SECRET_KEY=""

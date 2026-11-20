@@ -18,6 +18,12 @@ import {
   type Log,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import {
+  depositAddress,
+  depositContracts,
+  depositSalt,
+  type DepositSettlement,
+} from '@gatopago/shared/deposits';
 import { walletNetworks } from '@gatopago/shared/networks';
 import { paymentRouterAbi, type Payment } from '@gatopago/shared/payments';
 import type { Merchant } from '../src/auth';
@@ -44,6 +50,12 @@ const [arbitrum, fuji] = [fork('eip155:421614'), fork('eip155:43113')];
 const routersDeployed = (
   await Promise.all(
     [arbitrum, fuji].map((on) => on.public.getCode({ address: on.network.paymentRouter })),
+  )
+).every(Boolean);
+/** Cascabel's deposit factory on both forks (test/fork.ts deploys it from protocol's build). */
+const depositsDeployed = (
+  await Promise.all(
+    [arbitrum, fuji].map((on) => on.public.getCode({ address: depositContracts.factory })),
   )
 ).every(Boolean);
 
@@ -491,6 +503,115 @@ describe('scanning the networks', () => {
     expect(await cursor('eip155:421614')).toBe(arbitrumFrom + 100);
     expect(await cursor('eip155:43113')).toBe(fujiFrom + 300);
     await env.FLOW_DB.prepare('DELETE FROM chain_cursors').run();
+  });
+});
+
+describe.skipIf(!depositsDeployed)('deposit addresses', () => {
+  /** A plain transfer from the payer's wallet, as from any wallet or an exchange. */
+  const transfer = async (on: typeof arbitrum, to: Address, amount: bigint) => {
+    const hash = await on.wallet.writeContract({
+      address: on.network.usdc,
+      abi: erc20Abi,
+      functionName: 'transfer',
+      args: [to, amount],
+    });
+    await on.public.waitForTransactionReceipt({ hash });
+  };
+  const create = async (key: string) =>
+    (await api('/v1/payment_intents', { token: key, body: { amount: '5.00' } })).json<{
+      id: string;
+      deposit_address: Address;
+    }>();
+  const read = async (key: string, id: string) =>
+    (await api(`/v1/payment_intents/${id}`, { token: key })).json<{
+      status: string;
+      payment: { network: string } | null;
+    }>();
+
+  it('gives each intent its own address, settling to the merchant on the home network', async () => {
+    const { address, key } = await merchant();
+    const { id, deposit_address } = await create(key);
+    const settlement: DepositSettlement = {
+      recipient: address,
+      destinationDomain: arbitrum.network.cctp.domain,
+      // Circle's forwarding fee (200_000 in the mock above) and half again.
+      maxFee: 300_000n,
+      localRecipient: address,
+    };
+    expect(deposit_address).toBe(depositAddress(depositSalt(id), settlement));
+    expect(await (await api(`/checkout/v1/${id}`)).json()).toMatchObject({ deposit_address });
+  });
+
+  it('is paid on the home network with transfers, and swept to the merchant', async () => {
+    const { address, key } = await merchant();
+    const { id, deposit_address } = await create(key);
+
+    await transfer(arbitrum, deposit_address, 3_000_000n);
+    await runScheduled();
+    // Short of its amount: it waits for the rest, and keeps what arrived.
+    expect((await read(key, id)).status).toBe('requires_payment');
+    expect(await usdcOf(arbitrum, deposit_address)).toBe(3_000_000n);
+
+    await transfer(arbitrum, deposit_address, 2_000_000n);
+    await runScheduled();
+    expect(await read(key, id)).toMatchObject({
+      status: 'succeeded',
+      payment: { network: 'eip155:421614' },
+    });
+    expect(await usdcOf(arbitrum, address)).toBe(5_000_000n);
+    expect(await usdcOf(arbitrum, deposit_address)).toBe(0n);
+
+    // Paid again: the merchant gets that too.
+    await transfer(arbitrum, deposit_address, 1_000_000n);
+    await runScheduled();
+    expect(await usdcOf(arbitrum, address)).toBe(6_000_000n);
+  });
+
+  it('sweeps the other deposits when one cannot be swept', async () => {
+    const { address, key } = await merchant();
+    const swept = await create(key);
+    // A newer intent, swept first, whose settlement Circle refuses (no CCTP domain 99): its gas
+    // estimate reverts.
+    const stuck = await create(key);
+    const settlement: DepositSettlement = {
+      recipient: address,
+      destinationDomain: 99,
+      maxFee: 300_000n,
+      localRecipient: address,
+    };
+    const stuckAddress = depositAddress(depositSalt(stuck.id), settlement);
+    await env.FLOW_DB.prepare(
+      `UPDATE payment_intents SET deposit_address = ?, deposit_settlement = ?,
+       created_at = created_at + 1 WHERE id = ?`,
+    )
+      .bind(stuckAddress, JSON.stringify({ ...settlement, maxFee: '300000' }), stuck.id)
+      .run();
+    await transfer(fuji, stuckAddress, 5_000_000n);
+    await transfer(fuji, swept.deposit_address, 5_000_000n);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await runScheduled();
+
+    expect(await usdcOf(fuji, swept.deposit_address)).toBe(0n);
+    // Paid all the same: its funds can only go to the merchant.
+    expect((await read(key, stuck.id)).status).toBe('succeeded');
+    expect(await usdcOf(fuji, stuckAddress)).toBe(5_000_000n);
+  });
+
+  it('is paid on another network and crosses to the merchant with Circle CCTP', async () => {
+    const { address, key } = await merchant();
+    const { id, deposit_address } = await create(key);
+
+    await transfer(fuji, deposit_address, 5_000_000n);
+    await runScheduled();
+
+    expect(await read(key, id)).toMatchObject({
+      status: 'succeeded',
+      payment: { network: 'eip155:43113' },
+    });
+    // Burned on Fuji toward the merchant on Arbitrum, where Circle's Forwarding Service mints.
+    expect(await usdcOf(fuji, deposit_address)).toBe(0n);
+    expect(await usdcOf(fuji, address)).toBe(0n);
   });
 });
 

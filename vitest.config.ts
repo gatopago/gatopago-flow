@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
 import { defineConfig } from 'vitest/config';
-import { FORKS, SIGNER_KEY, forkUrl } from './test/forks.ts';
+import { FORKS, SIGNER_KEY, SWEEPER_KEY, forkUrl } from './test/forks.ts';
 
 export default defineConfig({
   plugins: [
@@ -20,6 +20,7 @@ export default defineConfig({
             Object.fromEntries(FORKS.map((fork) => [fork.id, forkUrl(fork.port)])),
           ),
           PAYMENT_SIGNER_PRIVATE_KEY: SIGNER_KEY,
+          SWEEPER_PRIVATE_KEY: SWEEPER_KEY,
           WEBHOOK_SECRET_KEY: randomBytes(32).toString('base64'),
           TEST_MIGRATIONS: await readD1Migrations(
             fileURLToPath(new URL('./migrations', import.meta.url)),

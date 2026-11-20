@@ -23,6 +23,25 @@ one tap and no gas). Served at `api.gatopago.com/v1` and `/checkout/v1`.
 5. The intent becomes `succeeded` and each webhook endpoint receives the event, signed with
    `GatoPago-Signature: t=<unix>,v1=<HMAC-SHA256(secret, "<t>.<body>")>` and retried with backoff.
 
+### Paying to the deposit address
+
+Every intent also has a `deposit_address` (Cascabel's `CascabelDeposit`, in `protocol`): the same
+address on every network, paid with a plain transfer from any wallet or exchange, with no
+authorization. It is derived from the intent and its settlement (the merchant's address, the home
+network and Circle's crossing fee, quoted when the intent is created and fixed in the address), so
+its funds can only reach the merchant.
+
+1. Every minute Flow reads, with one multicall per network, what each deposit holds in the intent's
+   coin, for intents until 7 days after they expire.
+2. When a deposit holds the intent's amount on some network, the intent becomes `succeeded` there
+   (`payment.network`; no transaction or payer, since it may take several transfers from anyone):
+   from then on the funds can only go to the merchant. Less than the amount waits for the rest.
+3. Flow sweeps it (`SWEEPER_PRIVATE_KEY` pays the gas): on the home network to the merchant; USDC
+   paid on another network crosses with CCTP and the Forwarding Service mints to the merchant on
+   the home network; another coin goes to the merchant on its own network. What arrives at the
+   deposit of an intent already paid is swept too. Anyone may sweep: if Flow stops, the funds still
+   reach only the merchant.
+
 The merchant receives at their GatoPago account address; GatoPago never holds the funds. The payer
 pays the platform fee (`PLATFORM_FEE_BPS`, in the intent's coin) and, when crossing networks,
 Circle's fee ceiling. Only USDC crosses networks: an intent in another coin is paid and received on
@@ -73,6 +92,7 @@ any of them is missing or invalid.
 | `WALLET_CORE` | service binding | Wallet Core, which answers whether a session still counts | `services` in `wrangler.jsonc`: the Worker `gatopago-wallet-core`, deployed in the same account |
 | `FLOW_RPC_URLS` | secret | `{"<network>": "<url>"}`: RPC that reads the routers' events and payments | Public RPCs. Flow reads 100 blocks per `eth_getLogs`, more than Alchemy's free tier allows (10) |
 | `PAYMENT_SIGNER_PRIVATE_KEY` | secret | Signs each payment authorization the routers check | A dedicated key (`cast wallet new`); its address must be every router's `signer` (`setSigner`, called by the routers' owner) |
+| `SWEEPER_PRIVATE_KEY` | secret | Sends the sweeps of deposit addresses and pays their gas | A dedicated key (`cast wallet new`), not the routers' signer; fund it with gas on every network in `WALLET_NETWORKS`. It can only move a deposit's funds to the deposit's settlement |
 | `WEBHOOK_SECRET_KEY` | secret | Encrypts merchants' webhook signing secrets at rest | `openssl rand -base64 32`; changing it makes the stored secrets unreadable |
 
 Bindings in `wrangler.jsonc`: `FLOW_DB` (D1, its id from `wrangler d1 create`) and

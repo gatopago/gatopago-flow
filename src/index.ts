@@ -2,6 +2,7 @@ import { authenticate } from './auth';
 import { authorize, confirm, readCheckout } from './checkout';
 import { Budget } from './budget';
 import { config, type Config } from './config';
+import { collectDeposits } from './deposits';
 import { HttpError, json, rateLimit, withCors } from './http';
 import {
   cancelIntent,
@@ -125,15 +126,19 @@ export default {
   },
 
   /**
-   * Every minute: payments onchain first, then crossings Circle completed, webhooks and
-   * expirations, within `SUBREQUESTS_PER_RUN` external requests; what does not fit waits a minute.
+   * Every minute: payments onchain first (through the routers and to deposit addresses), then
+   * crossings Circle completed, webhooks and expirations, within `SUBREQUESTS_PER_RUN` external
+   * requests; what does not fit waits a minute.
    */
   async scheduled(_controller, env) {
     const settings = await config(env);
     const budget = new Budget(settings.subrequestsPerRun);
     const results = [
-      // Half at most, so crossings and webhooks get their turn while the scan catches up.
-      ...(await Promise.allSettled([scanNetworks(env, settings, budget.share(2))])),
+      // A third each at most, so crossings and webhooks get their turn while these catch up.
+      ...(await Promise.allSettled([
+        scanNetworks(env, settings, budget.share(3)),
+        collectDeposits(env, settings, budget.share(3)),
+      ])),
       ...(await Promise.allSettled([
         completeCrossings(env, settings, budget),
         deliverWebhooks(env, settings, budget),
