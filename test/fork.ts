@@ -3,13 +3,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import {
   concatHex,
   createTestClient,
-  erc20Abi,
   http,
   parseAbi,
   keccak256,
   parseEther,
   publicActions,
   toBytes,
+  toHex,
   walletActions,
   type Address,
 } from 'viem';
@@ -27,8 +27,8 @@ const CREATE2_DEPLOYER = '0x4e59b44847b379578588920cA78FbF26c0B4956C';
 
 /**
  * Vitest global setup: each fork's router accepts the test signer's authorizations, the payer holds
- * 20 USDC, the sweeper holds gas, and Cascabel's deposit factory is there (deployed from protocol's
- * build while it is not on the networks yet).
+ * 1,000 USDC (enough for every deposit and checkout test on the network), the sweeper holds gas,
+ * and Cascabel's deposit factory is there (from protocol's build on a network that lacks it).
  */
 export default async function setup() {
   const processes = FORKS.map((fork) =>
@@ -69,11 +69,13 @@ export default async function setup() {
         functionName: 'setSigner',
         args: [privateKeyToAccount(SIGNER_KEY).address],
       });
-      await send(fork.usdcHolder, {
-        address: network.usdc,
-        abi: erc20Abi,
-        functionName: 'transfer',
-        args: [privateKeyToAccount(PAYER_KEY).address, 20_000_000n],
+      await client.request({
+        method: 'anvil_dealERC20' as 'anvil_setBalance',
+        params: [
+          privateKeyToAccount(PAYER_KEY).address,
+          network.usdc,
+          toHex(1_000_000_000n),
+        ] as never,
       });
       for (const key of [PAYER_KEY, SWEEPER_KEY] as const) {
         await client.setBalance({
