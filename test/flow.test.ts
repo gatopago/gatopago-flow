@@ -525,7 +525,8 @@ describe.skipIf(!depositsDeployed)('deposit addresses', () => {
   const read = async (key: string, id: string) =>
     (await api(`/v1/payment_intents/${id}`, { token: key })).json<{
       status: string;
-      payment: { network: string } | null;
+      amount_received: string | null;
+      payment: { network: string; transaction_hash: string | null } | null;
     }>();
 
   it('gives each intent its own address, settling to the merchant on the home network', async () => {
@@ -542,29 +543,78 @@ describe.skipIf(!depositsDeployed)('deposit addresses', () => {
     expect(await (await api(`/checkout/v1/${id}`)).json()).toMatchObject({ deposit_address });
   });
 
-  it('is paid on the home network with transfers, and swept to the merchant', async () => {
+  /** The types of the events Flow recorded about an intent, oldest first. */
+  const eventsOf = async (id: string) =>
+    (
+      await env.FLOW_DB.prepare(
+        "SELECT type FROM events WHERE data LIKE '%' || ? || '%' ORDER BY created_at, rowid",
+      )
+        .bind(id)
+        .all<{ type: string }>()
+    ).results.map(({ type }) => type);
+
+  it('is paid on the home network, swept, and succeeds with the sweep transaction', async () => {
     const { address, key } = await merchant();
     const { id, deposit_address } = await create(key);
 
     await transfer(arbitrum, deposit_address, 3_000_000n);
     await runScheduled();
-    // Short of its amount: it waits for the rest, and keeps what arrived.
-    expect((await read(key, id)).status).toBe('requires_payment');
+    // Short of its amount: it waits for the rest, and tells the merchant what arrived.
+    expect(await read(key, id)).toMatchObject({ status: 'requires_payment', amount_received: '3' });
     expect(await usdcOf(arbitrum, deposit_address)).toBe(3_000_000n);
 
     await transfer(arbitrum, deposit_address, 2_000_000n);
     await runScheduled();
-    expect(await read(key, id)).toMatchObject({
-      status: 'succeeded',
-      payment: { network: 'eip155:421614' },
-    });
+    // The amount arrived and the sweep is out: processing until it is confirmed.
+    expect(await read(key, id)).toMatchObject({ status: 'processing', amount_received: '5' });
     expect(await usdcOf(arbitrum, address)).toBe(5_000_000n);
     expect(await usdcOf(arbitrum, deposit_address)).toBe(0n);
 
-    // Paid again: the merchant gets that too.
+    await runScheduled();
+    const paid = await read(key, id);
+    expect(paid).toMatchObject({
+      status: 'succeeded',
+      payment: { network: 'eip155:421614', transaction_hash: expect.stringMatching(/^0x/) },
+    });
+
+    // Paid again: the merchant gets that too, and is told.
     await transfer(arbitrum, deposit_address, 1_000_000n);
     await runScheduled();
     expect(await usdcOf(arbitrum, address)).toBe(6_000_000n);
+    expect(await eventsOf(id)).toEqual([
+      'payment_intent.created',
+      'payment_intent.partially_paid',
+      'payment_intent.processing',
+      'payment_intent.succeeded',
+      'payment_intent.duplicate_payment',
+    ]);
+  });
+
+  it('sweeps what arrived to the merchant when an intent ends unpaid, and says so once', async () => {
+    const { address, key } = await merchant();
+    const { id, deposit_address } = await create(key);
+    // An exchange kept its withdrawal fee.
+    await transfer(arbitrum, deposit_address, 4_990_000n);
+    await runScheduled();
+    expect(await read(key, id)).toMatchObject({
+      status: 'requires_payment',
+      amount_received: '4.99',
+    });
+
+    await env.FLOW_DB.prepare(
+      "UPDATE payment_intents SET status = 'expired', expires_at = ? WHERE id = ?",
+    )
+      .bind(Math.floor(Date.now() / 1000) - 60, id)
+      .run();
+    await runScheduled();
+    await runScheduled();
+
+    expect(await usdcOf(arbitrum, address)).toBe(4_990_000n);
+    expect(await usdcOf(arbitrum, deposit_address)).toBe(0n);
+    expect(await read(key, id)).toMatchObject({ status: 'expired', amount_received: '4.99' });
+    expect((await eventsOf(id)).filter((type) => type === 'payment_intent.underpaid')).toHaveLength(
+      1,
+    );
   });
 
   it('sweeps the other deposits when one cannot be swept', async () => {
@@ -593,25 +643,34 @@ describe.skipIf(!depositsDeployed)('deposit addresses', () => {
     await runScheduled();
 
     expect(await usdcOf(fuji, swept.deposit_address)).toBe(0n);
-    // Paid all the same: its funds can only go to the merchant.
-    expect((await read(key, stuck.id)).status).toBe('succeeded');
+    // Its amount arrived, so it is processing; its funds stay until a sweep goes through.
+    expect((await read(key, stuck.id)).status).toBe('processing');
     expect(await usdcOf(fuji, stuckAddress)).toBe(5_000_000n);
   });
 
-  it('is paid on another network and crosses to the merchant with Circle CCTP', async () => {
+  it('is paid on another network and succeeds once Circle mints to the merchant', async () => {
     const { address, key } = await merchant();
     const { id, deposit_address } = await create(key);
 
+    iris = null;
     await transfer(fuji, deposit_address, 5_000_000n);
     await runScheduled();
-
-    expect(await read(key, id)).toMatchObject({
-      status: 'succeeded',
-      payment: { network: 'eip155:43113' },
+    await runScheduled();
+    const crossing = await read(key, id);
+    // Burned on Fuji toward the merchant on Arbitrum: processing until Circle mints there.
+    expect(crossing).toMatchObject({
+      status: 'processing',
+      payment: { network: 'eip155:43113', transaction_hash: expect.stringMatching(/^0x/) },
     });
-    // Burned on Fuji toward the merchant on Arbitrum, where Circle's Forwarding Service mints.
     expect(await usdcOf(fuji, deposit_address)).toBe(0n);
     expect(await usdcOf(fuji, address)).toBe(0n);
+
+    // Circle's mint on the home network: any confirmed transaction stands in for it on the fork.
+    const mint = await arbitrum.wallet.sendTransaction({ to: payer.address, value: 0n });
+    await arbitrum.public.waitForTransactionReceipt({ hash: mint });
+    iris = { forwardState: 'COMPLETE', forwardTxHash: mint };
+    await runScheduled();
+    expect(await read(key, id)).toMatchObject({ status: 'succeeded' });
   });
 });
 

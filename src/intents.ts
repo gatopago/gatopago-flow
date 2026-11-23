@@ -31,6 +31,10 @@ export interface IntentRow {
   deposit_address: string | null;
   /** The `DepositSettlement` the address commits to, as JSON (`maxFee` as a string). */
   deposit_settlement: string | null;
+  /** What has reached the deposit, in atomic units of `currency` (less than `amount`: partial). */
+  amount_received: string | null;
+  /** When what arrived was swept to the merchant although the intent ended unpaid. */
+  underpaid_at: number | null;
 }
 
 const DAY = 86_400;
@@ -46,6 +50,10 @@ export function presentIntent(row: IntentRow, config: Config) {
     metadata: row.metadata ? JSON.parse(row.metadata) : {},
     checkout_url: `${config.webOrigin}/pay/${row.id}`,
     deposit_address: row.deposit_address,
+    amount_received:
+      row.amount_received === null
+        ? null
+        : formatUnits(BigInt(row.amount_received), decimalsOf(row.currency)),
     expires_at: row.expires_at,
     created_at: row.created_at,
     livemode: !config.testnet,
@@ -155,16 +163,18 @@ export async function createIntent(
   }
 
   // Its deposit settles where the merchant receives: USDC on the home network (crossing there with
-  // CCTP when paid on another one), any other coin on the network it is paid on.
-  const from = [...config.networks.values()].find((network) => network.id !== config.home.id);
+  // CCTP when paid on another one), any other coin on the network it is paid on. The crossing fee is
+  // fixed in the address, so it takes the highest quote among the networks it can be paid from.
+  const sources = [...config.networks.values()].filter((network) => network.id !== config.home.id);
+  const fees = await Promise.all(
+    sources.map((from) => depositMaxFee(from, config.home, amount, AbortSignal.timeout(10_000))),
+  ).catch(() => {
+    throw new HttpError(503, 'CCTP_FEE_UNAVAILABLE');
+  });
   const settlement: DepositSettlement = {
     recipient: merchant.address,
     destinationDomain: config.home.cctp.domain,
-    maxFee: from
-      ? await depositMaxFee(from, config.home, amount, AbortSignal.timeout(10_000)).catch(() => {
-          throw new HttpError(503, 'CCTP_FEE_UNAVAILABLE');
-        })
-      : 0n,
+    maxFee: fees.reduce((highest, fee) => (fee > highest ? fee : highest), 0n),
     localRecipient: merchant.address,
   };
 
@@ -187,6 +197,8 @@ export async function createIntent(
     paid_at: null,
     deposit_address: depositAddress(depositSalt(id), settlement),
     deposit_settlement: JSON.stringify({ ...settlement, maxFee: settlement.maxFee.toString() }),
+    amount_received: null,
+    underpaid_at: null,
   };
   row.onchain_id = keccak256(toHex(row.id));
   const [insert] = await env.FLOW_DB.batch([

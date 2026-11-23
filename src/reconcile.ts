@@ -116,7 +116,8 @@ async function scanNetwork(env: Env, config: Config, network: Network, budget: B
  */
 export async function completeCrossings(env: Env, config: Config, budget: Budget): Promise<void> {
   const { results } = await env.FLOW_DB.prepare(
-    "SELECT * FROM payment_intents WHERE status = 'processing' LIMIT 50",
+    // A deposit payment whose sweep is not sent yet has no transaction to follow.
+    "SELECT * FROM payment_intents WHERE status = 'processing' AND transaction_hash IS NOT NULL LIMIT 50",
   ).all<IntentRow>();
   for (const intent of results) {
     const network = config.networks.get(intent.network!);

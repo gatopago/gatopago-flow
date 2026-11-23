@@ -32,15 +32,25 @@ network and Circle's crossing fee, quoted when the intent is created and fixed i
 its funds can only reach the merchant.
 
 1. Every minute Flow reads, with one multicall per network, what each deposit holds in the intent's
-   coin, for intents until 7 days after they expire.
-2. When a deposit holds the intent's amount on some network, the intent becomes `succeeded` there
-   (`payment.network`; no transaction or payer, since it may take several transfers from anyone):
-   from then on the funds can only go to the merchant. Less than the amount waits for the rest.
-3. Flow sweeps it (`SWEEPER_PRIVATE_KEY` pays the gas): on the home network to the merchant; USDC
-   paid on another network crosses with CCTP and the Forwarding Service mints to the merchant on
-   the home network; another coin goes to the merchant on its own network. What arrives at the
-   deposit of an intent already paid is swept too. Anyone may sweep: if Flow stops, the funds still
-   reach only the merchant.
+   coin, for the 500 newest intents and until 7 days after they expire.
+2. When a deposit holds the intent's amount on some network, the intent becomes `processing` there
+   (`amount_received`, `payment.network`) and Flow sweeps it (`SWEEPER_PRIVATE_KEY` pays the gas).
+   On the home network the sweep pays the merchant, and the intent succeeds with the sweep's
+   transaction once confirmed. USDC paid on another network crosses with CCTP and succeeds once
+   Circle's Forwarding Service mints to the merchant, as a crossing router payment does. Another coin
+   goes to the merchant on its own network.
+3. Less than the amount (an exchange keeps its withdrawal fee, say) is recorded as `amount_received`
+   with `payment_intent.partially_paid`, and waits for the rest. If the intent expires or is
+   canceled unpaid, what arrived is swept to the merchant anyway, with `payment_intent.underpaid`
+   (once).
+4. What arrives at the deposit of an intent already paid is swept too, with
+   `payment_intent.duplicate_payment`.
+
+Anyone may sweep: if Flow stops, the funds still reach only the merchant, and a sweep someone else
+sent settles the intent all the same. The crossing fee is fixed in the address: the highest of
+Circle's quotes from each network the intent can be paid from, and half again. If Circle asks for
+more when the sweep crosses, the Forwarding Service does not mint; the burn stays attested and
+anyone can mint it on the home network (`destinationCaller` is zero), but Flow does not do it yet.
 
 The merchant receives at their GatoPago account address; GatoPago never holds the funds. The payer
 pays the platform fee (`PLATFORM_FEE_BPS`, in the intent's coin) and, when crossing networks,
